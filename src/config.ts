@@ -6,6 +6,8 @@
  * single warm serverless instance always sees the latest injected env values.
  */
 
+import type { ModelSelection } from "@cursor/sdk";
+
 /**
  * Reads a string env var, falling back to `fallback` when it is unset OR blank.
  *
@@ -86,10 +88,31 @@ export const datadogSite = (): string => envOr(process.env.DD_SITE, "datadoghq.c
 export const observeWindowMs = (): number => Number(process.env.OBSERVE_WINDOW_MS ?? 900_000);
 
 /** Cloud model used for every spawned agent. Override with `BRIDGE_MODEL_ID`. */
-export const modelId = envOr(process.env.BRIDGE_MODEL_ID, "composer-2.5");
+export const modelId = envOr(process.env.BRIDGE_MODEL_ID, "grok-4.6");
 
 /** Cursor model the planner agent uses to read the ticket. Override with `PLANNER_MODEL_ID`. */
-export const plannerModelId = envOr(process.env.PLANNER_MODEL_ID, "composer-2.5");
+export const plannerModelId = envOr(process.env.PLANNER_MODEL_ID, "grok-4.6");
+
+/**
+ * grok-4.6 catalog default is effort `high` + fast `true`. Extra high is
+ * `xhigh`; other ids get no params so we never attach effort to models that
+ * do not have it.
+ */
+export function selectCloudModel(id: string): ModelSelection {
+  if (id === "grok-4.6") {
+    return {
+      id: "grok-4.6",
+      params: [
+        { id: "effort", value: "xhigh" },
+        { id: "fast", value: "true" },
+      ],
+    };
+  }
+  return { id };
+}
+
+export const fleetModel = selectCloudModel(modelId);
+export const plannerModel = selectCloudModel(plannerModelId);
 
 /** Upper bound on agents spawned per ticket. */
 export const maxAgents = Number(process.env.MAX_AGENTS ?? 6);

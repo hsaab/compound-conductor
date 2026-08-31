@@ -3,7 +3,7 @@
  * recovering a previously-spawned agent's latest run for the reconciler.
  */
 
-import { cursorKey, deployTargetRepo, ghOwner, markers, modelId } from "../config.js";
+import { cursorKey, deployTargetRepo, fleetModel, ghOwner, markers, modelId } from "../config.js";
 import { PIPELINE_CYCLES, type PipelineCycle } from "./cycle.js";
 import { postComment } from "../integrations/linear.js";
 import { oneLineError } from "../shared/errors.js";
@@ -39,7 +39,7 @@ export async function spawnAgent(task: PlannedTask, issue: LinearIssuePayload): 
     const { Agent } = await import("@cursor/sdk");
     await using agent = await Agent.create({
       apiKey: cursorKey(),
-      model: { id: modelId },
+      model: fleetModel,
       cloud: {
         repos: [{ url: `https://github.com/${task.repo}` }],
         autoCreatePR: true,
@@ -117,7 +117,7 @@ export async function spawnVerifyAgent(input: VerifyRunInput): Promise<string | 
     const { Agent } = await import("@cursor/sdk");
     await using agent = await Agent.create({
       apiKey: cursorKey(),
-      model: { id: modelId },
+      model: fleetModel,
       cloud: {
         repos: [{ url: `https://github.com/${repo}` }],
         autoCreatePR: false,
@@ -268,7 +268,7 @@ export async function spawnRemediationAgent(alert: RemediationAlert): Promise<st
     const { Agent } = await import("@cursor/sdk");
     await using agent = await Agent.create({
       apiKey: cursorKey(),
-      model: { id: modelId },
+      model: fleetModel,
       cloud: {
         repos: [{ url: `https://github.com/${repo}` }],
         autoCreatePR: true,

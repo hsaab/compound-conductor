@@ -8,7 +8,7 @@
  * per invocation — so during planning the live customer-facing progression is on
  * the Linear ticket (the bridge posts comments as it goes), not `vercel logs`.
  */
-import { cursorKey, deployTargetRepo, ghOwner, maxAgents, plannerModelId } from "../config.js";
+import { cursorKey, deployTargetRepo, ghOwner, maxAgents, plannerModel } from "../config.js";
 import { oneLineError } from "../shared/errors.js";
 import type { LinearIssuePayload, TestCase } from "../types.js";
 
@@ -382,7 +382,7 @@ async function runPlannerOnce(issue: LinearIssuePayload, apiKey: string): Promis
     const { Agent } = await import("@cursor/sdk");
     const result = await Agent.prompt(buildPlannerPrompt(issue), {
       apiKey,
-      model: { id: plannerModelId },
+      model: plannerModel,
       cloud: {
         repos: [{ url: plannerHostRepo }],
         autoCreatePR: false,
