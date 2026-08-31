@@ -126,8 +126,8 @@ request blocks on a multi-minute agent run.
 | `GH_TOKEN` | Optional. Reads PR merge status so review/merge advance on the real merge (needed for private target repos). Without it, a successful deploy is treated as proof of merge. Repo-scoped; named `GH_TOKEN` to avoid clobbering local `gh`/git auth. |
 | `DEPLOY_TARGET_REPO` | Repo the loop builds/observes (default: `compound`) |
 | `OBSERVE_WINDOW_MS` | Post-deploy verify window before a clean-pass fallback (default: `900000`, 15 min) |
-| `BRIDGE_MODEL_ID` | Cloud model for spawned agents (default: `composer-2.5`) |
-| `PLANNER_MODEL_ID` | Model the planner agent uses (default: `composer-2.5`) |
+| `BRIDGE_MODEL_ID` | Cloud model id for spawned agents (default: `grok-4.6`). Extra high (effort `xhigh`, fast `true`) is attached only when the resolved id is `grok-4.6`; a bare `{ id: "grok-4.6" }` would be catalog high, not extra high. Other ids get no effort param. |
+| `PLANNER_MODEL_ID` | Model id the planner agent uses (default: `grok-4.6`, same extra-high attachment as `BRIDGE_MODEL_ID`) |
 | `PLANNER_MAX_ATTEMPTS` | How many times the planner agent is tried before falling back, so a transient cloud-run error is retried instead of degrading the plan (default: `2`; `1` disables retries) |
 | `PLANNER_RETRY_DELAY_MS` | Backoff between planner attempts (default: `500`) |
 | `MAX_AGENTS` | Upper bound on agents per ticket (default: `6`) |
