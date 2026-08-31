@@ -26,6 +26,8 @@ export interface PipelineCycle {
   /** Human label used in log lines, Slack copy, and comment headlines. */
   label: "verify" | "hotfix verify";
   deployedMarker: string;
+  /** Posted when a production deploy arrives before this cycle's merge is confirmed. */
+  bufferedMarker: string;
   passMarker: string;
   failMarker: string;
   mergedMarker: string;
@@ -99,6 +101,7 @@ export const INITIAL_PIPELINE_CYCLE: PipelineCycle = {
   id: "initial",
   label: "verify",
   deployedMarker: markers.deployed,
+  bufferedMarker: markers.deployBuffered,
   passMarker: markers.verifyPass,
   failMarker: markers.verifyFail,
   mergedMarker: markers.merged,
@@ -120,6 +123,7 @@ export const HOTFIX_PIPELINE_CYCLE: PipelineCycle = {
   id: "hotfix",
   label: "hotfix verify",
   deployedMarker: markers.hotfixDeployed,
+  bufferedMarker: markers.hotfixDeployBuffered,
   passMarker: markers.hotfixVerifyPass,
   failMarker: markers.hotfixVerifyFail,
   mergedMarker: markers.hotfixMerged,

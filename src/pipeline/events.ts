@@ -23,6 +23,7 @@ function inferStage(body: string): string | undefined {
   // Hotfix-cycle markers map to the looped-back stage they advance, so the log
   // reads as the second pass through review → deploy → verify.
   if (/conductor:hotfix-verify/.test(body)) return "verify";
+  if (/conductor:hotfix-deploy-buffered/.test(body)) return "deploy";
   if (/conductor:hotfix-deployed/.test(body)) return "deploy";
   if (/conductor:hotfix-merged/.test(body)) return "review";
   if (/conductor:remediation-done|conductor:remediation-agent|conductor:remediated/.test(body)) {
@@ -33,6 +34,7 @@ function inferStage(body: string): string | undefined {
   }
   if (/conductor:observe-complete/.test(body)) return "verify";
   if (/conductor:verified/.test(body)) return "verify";
+  if (/conductor:deploy-buffered/.test(body)) return "deploy";
   if (/conductor:deployed/.test(body)) return "deploy";
   if (/conductor:merged/.test(body)) return "review";
   if (/conductor:routing|Routing decision/i.test(body)) return "plan";

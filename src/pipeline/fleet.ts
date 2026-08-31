@@ -20,6 +20,7 @@ import {
   type MergeContext,
   type PipelineCycle,
 } from "./cycle.js";
+import { promoteBufferedDeploy } from "./deployBuffer.js";
 import { parseEvents } from "./events.js";
 import { reconcileAllVerifyCycles } from "./verify.js";
 import { allPullRequestsMerged } from "../integrations/github.js";
@@ -311,6 +312,9 @@ export function summarizeJob(issue: LinearIssuePayload, nowMs: number): JobSumma
     stages: deriveStages(issue, buildAgents),
     // The same comment thread that drives stage state, surfaced as a readable log.
     events: parseEvents(issue),
+    bufferedDeploy: PIPELINE_CYCLES.some(
+      (cycle) => hasComment(issue, cycle.bufferedMarker) && !hasComment(issue, cycle.deployedMarker),
+    ),
   };
 }
 
@@ -318,8 +322,9 @@ export function summarizeJob(issue: LinearIssuePayload, nowMs: number): JobSumma
  * Whether the opportunistic reconciler still has work to advance for this fleet.
  * Pending agents need their runs checked; a running merge/observe/remediate stage
  * needs the reconciler to confirm the merge, close the observe window, or report
- * the hotfix. `deploy` is intentionally excluded: it advances via the Vercel
- * webhook, not the reconciler, so a fleet waiting only on deploy needs no tick.
+ * the hotfix. `deploy` is intentionally excluded on the happy path: it advances
+ * via the Vercel webhook. A buffered deploy is the exception — promote still
+ * needs a tick after merge when the webhook already fired.
  */
 export function jobNeedsReconcile(job: JobSummary): boolean {
   // A remediates first-report with no hotfix PR marks remediates done and does
@@ -328,6 +333,7 @@ export function jobNeedsReconcile(job: JobSummary): boolean {
   if (job.agents.some((agent) => agent.role === "remediation" && agent.done && !agent.prUrl)) {
     return true;
   }
+  if (job.bufferedDeploy) return true;
   if (job.agentsPending > 0) return true;
   const { build, review, verify, remediate } = job.stages;
   return build === "running" || review === "running" || verify === "running" || remediate === "running";
@@ -607,7 +613,10 @@ async function reconcileMergeForCycle(
   cycle: PipelineCycle,
   ctx?: MergeContext,
 ): Promise<void> {
-  if (hasComment(issue, cycle.mergedMarker)) return;
+  if (hasComment(issue, cycle.mergedMarker)) {
+    await promoteBufferedDeploy(issue, cycle, { mergeJustConfirmed: false });
+    return;
+  }
   if (!cycle.mergeReady(issue, ctx)) return;
 
   const prUrls = cycle.prUrls(issue);
@@ -624,6 +633,7 @@ async function reconcileMergeForCycle(
 
   await postComment(issue.id, mergedCommentForCycle(cycle, prUrls));
   console.log(`[merge] ${issue.identifier} ${cycle.id} PR(s) merged → review complete`);
+  await promoteBufferedDeploy(issue, cycle, { mergeJustConfirmed: true });
 }
 
 /** Minimum gap between opportunistic reconciles kicked off by dashboard polls. */
