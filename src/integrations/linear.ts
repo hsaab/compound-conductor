@@ -157,14 +157,24 @@ function parseDoneIds(issue: LinearIssuePayload, doneRe: RegExp): Set<string> {
   return ids;
 }
 
-/** Maps each completed agent id (captured by `idRe`) to the PR URL in its completion comment. */
+/**
+ * Maps each completed agent id (captured by `idRe`) to the PR URL in its
+ * completion comment. Linear does not guarantee chronological order, so a
+ * present URL is never overwritten by a later no-PR comment.
+ */
 function parseResults(issue: LinearIssuePayload, idRe: RegExp): Map<string, { prUrl?: string }> {
   const results = new Map<string, { prUrl?: string }>();
   for (const comment of issue.comments ?? []) {
     const body = comment.body ?? "";
     const id = body.match(idRe)?.[1];
     if (!id) continue;
-    results.set(id, { prUrl: body.match(PR_URL_RE)?.[1] });
+    const prUrl = body.match(PR_URL_RE)?.[1];
+    if (prUrl) {
+      results.set(id, { prUrl });
+      continue;
+    }
+    if (results.get(id)?.prUrl) continue;
+    results.set(id, { prUrl: undefined });
   }
   return results;
 }

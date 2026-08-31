@@ -432,6 +432,18 @@ export interface ReconcileSummary {
   fleetsCompleted: number;
 }
 
+/**
+ * Build or remediation agents that already reported done but whose completion
+ * comment still has no PR URL. The extra reconcile poll recovers a late PR.
+ */
+export function agentsMissingPrUrl(
+  agents: SpawnedAgent[],
+  doneIds: Set<string>,
+  results: Map<string, { prUrl?: string }>,
+): SpawnedAgent[] {
+  return agents.filter((agent) => doneIds.has(agent.agentId) && !results.get(agent.agentId)?.prUrl);
+}
+
 function agentDoneComment(agent: SpawnedAgent, status: AgentRunStatus): string {
   const name = repoShortName(agent.repo);
   // An open PR is the success signal, so report it as such even when the run's
@@ -483,6 +495,28 @@ async function reconcileRemediation(issue: LinearIssuePayload): Promise<number> 
       ]),
     );
   }
+
+  const recovered = new Set<string>();
+  for (const agent of agentsMissingPrUrl(
+    parseRemediationAgents(issue),
+    done,
+    parseRemediationResults(issue),
+  )) {
+    if (recovered.has(agent.agentId)) continue;
+    const status = await checkAgentRun(agent.agentId);
+    if (!status?.prUrl) continue;
+    await postComment(issue.id, remediationDoneComment(agent, status));
+    recovered.add(agent.agentId);
+    completed += 1;
+    console.log(`[reconcile] remediation agent ${agent.agentId} recovered PR: ${status.prUrl} (${issue.identifier})`);
+    await postSlack(
+      statusBlocks("🛠️ Hotfix PR opened by remediation agent", [
+        `Ticket: ${issue.identifier} — ${issue.title}`,
+        `Repo: ${agent.repo}`,
+        `PR: ${status.prUrl}`,
+      ]),
+    );
+  }
   return completed;
 }
 
@@ -513,6 +547,19 @@ export async function reconcileAll(): Promise<ReconcileSummary> {
       const prNote = status.prUrl ? `PR: ${status.prUrl}` : "no PR opened";
       console.log(
         `[reconcile] ${repoShortName(agent.repo)} agent on ${agent.repo} ${status.status} → ${prNote} (posted to ${issue.identifier})`,
+      );
+    }
+
+    const recovered = new Set<string>();
+    for (const agent of agentsMissingPrUrl(spawned, parseDoneAgentIds(issue), parseAgentResults(issue))) {
+      if (recovered.has(agent.agentId)) continue;
+      const status = await checkAgentRun(agent.agentId);
+      if (!status?.prUrl) continue;
+      await postComment(issue.id, agentDoneComment(agent, status));
+      recovered.add(agent.agentId);
+      summary.agentsCompleted += 1;
+      console.log(
+        `[reconcile] ${repoShortName(agent.repo)} agent on ${agent.repo} recovered PR: ${status.prUrl} (posted to ${issue.identifier})`,
       );
     }
 
