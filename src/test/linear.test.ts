@@ -87,6 +87,14 @@ test("isBridgeComment recognizes every bridge marker and ignores user comments",
   assert.ok(!isBridgeComment(null));
 });
 
+test("isBridgeComment recognizes a deploy-buffered comment", () => {
+  assert.ok(isBridgeComment("<!-- conductor:deploy-buffered -->\n**Deploy buffered**"));
+});
+
+test("isBridgeComment recognizes a hotfix-deploy-buffered comment", () => {
+  assert.ok(isBridgeComment("<!-- conductor:hotfix-deploy-buffered -->\n**Hotfix deploy buffered**"));
+});
+
 test("issueRefFromBody accepts issueId, identifier, or id and trims whitespace", () => {
   // /api/trigger and /api/reset must accept the same keys; DEMO_FLOW §7 sends `identifier`.
   assert.equal(issueRefFromBody({ issueId: "FE-7" }), "FE-7");

@@ -63,6 +63,34 @@ test("parseEvents tags each pipeline stage from its hidden marker", () => {
   assert.equal(events[1].stage, "remediate");
 });
 
+test("parseEvents tags a deploy-buffered comment as the deploy stage", () => {
+  const events = parseEvents(
+    issue([
+      {
+        body: `<!-- conductor:deploy-buffered -->\n**Deploy buffered** — production deploy arrived before merge confirmed.`,
+        createdAt: "2026-06-02T12:00:00.000Z",
+      },
+    ]),
+  );
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].stage, "deploy");
+});
+
+test("parseEvents tags a hotfix-deploy-buffered comment as the deploy stage", () => {
+  const events = parseEvents(
+    issue([
+      {
+        body: `<!-- conductor:hotfix-deploy-buffered -->\n**Hotfix deploy buffered** — production deploy arrived before merge confirmed.`,
+        createdAt: "2026-06-02T12:00:00.000Z",
+      },
+    ]),
+  );
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].stage, "deploy");
+});
+
 test("parseEvents tags routing decision comments as plan stage", () => {
   const events = parseEvents(
     issue([
