@@ -367,14 +367,17 @@ export const dashboardHtml = /* html */ `<!doctype html>
   // embedded browser never flips hidden when you switch its tabs, so that
   // surface falls back to blur/focus: leaving the tab blurs the webview and
   // pauses; clicking back fires focus and resumes with an immediate poll. The
-  // blur pause is deferred 50ms so a blur/focus pair from a tab return cannot
-  // cancel the first poll, and a page that never had focus never pauses.
+  // blur pause is deferred 50ms so a blur-then-focus pair cannot cancel that
+  // poll. A focus-then-blur from Simple Browser tab chrome is ignored for the
+  // same 50ms so that gesture cannot increment pollGen on the fetch just
+  // started. A page that never had focus never pauses.
   const pauseBtn = document.getElementById("pause");
   const pulse = document.querySelector(".live .pulse");
   let boardTimer = null;
   let pollGen = 0;
   let manuallyPaused = false;
   let idlePauseTimer = null;
+  let lastFocusAt = 0;
 
   function inIdeBrowser() {
     try {
@@ -440,6 +443,9 @@ export const dashboardHtml = /* html */ `<!doctype html>
   function onWindowBlur() {
     if (manuallyPaused || document.hidden || !inIdeBrowser()) return;
     cancelIdlePause();
+    // Tab-return chrome fires focus then blur. Arming a pause here would
+    // increment pollGen and drop the /api/board startPolling just kicked.
+    if (Date.now() - lastFocusAt < 50) return;
     idlePauseTimer = setTimeout(() => {
       idlePauseTimer = null;
       if (manuallyPaused || document.hidden || document.hasFocus()) return;
@@ -449,6 +455,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
 
   function onWindowFocus() {
     cancelIdlePause();
+    lastFocusAt = Date.now();
     if (!manuallyPaused && !document.hidden) startPolling();
   }
 
