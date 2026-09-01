@@ -16,6 +16,7 @@ import { checkServiceHealth, datadogServiceUrl, type ServiceHealth } from "../in
 import {
   HOTFIX_PIPELINE_CYCLE,
   INITIAL_PIPELINE_CYCLE,
+  cycleMergePrUrls,
   hotfixPrOpened,
   mergedCommentForCycle,
   type PipelineCycle,
@@ -170,7 +171,7 @@ async function confirmMergeBeforeDeploy(
   if (!githubToken()) return null;
   if (hasComment(issue, cycle.mergedMarker)) return null;
 
-  const prUrls = cycle.prUrls(issue);
+  const prUrls = cycleMergePrUrls(cycle, issue);
   const merged = prUrls.length > 0 ? await allPullRequestsMerged(prUrls) : false;
   if (!merged) {
     await writeBufferedDeploy(issue, cycle, dep);
