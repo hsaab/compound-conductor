@@ -276,6 +276,28 @@ const FE13_FINDINGS = [
   "VERIFY_RESULT: FAIL - Quote TTL cache still active (repeat calls durationMs=0); multi-ticker requests not sequentially paced and holdings/synthetic polls reuse cached quotes instead of live upstream fetches.",
 ].join("\n");
 
+// Screenshot-shaped dump: Case/Result markdown table plus local img tags, no Case N headings.
+const SCREENSHOT_FINDINGS = [
+  "Portfolio prices look stale. Attempt to make quotes real-time failed.",
+  "DNS and TCP to Vercel succeed; TLS handshake is reset (SSL_ERROR_SYSCALL, ERR_CONNECTION_CLOSED).",
+  "*.vercel.app is likely not on the Cloud egress allowlist.",
+  "",
+  "Case results",
+  "",
+  "| # | Case | Result | Evidence |",
+  "| --- | --- | --- | --- |",
+  "| 1 | API quotes check | FAIL (blocked) | TLS reset on quotes URL |",
+  "| 2 | Sequential GLOBAL_QUOTE pacing | FAIL (blocked) | cannot reach deployed API |",
+  "| 3 | Pacing on throttle/lookup failure | FAIL (blocked) | site unreachable |",
+  "| 4 | Holdings live refresh | FAIL (blocked) | live poll never ran |",
+  "| 5 | SSR snapshot first paint | FAIL (blocked) | root also ERR_CONNECTION_CLOSED |",
+  "",
+  '<img src="/opt/cursor/artifacts/fe13_quotes_api_connection_closed.webp" alt="Quotes API URL shows ERR_CONNECTION_CLOSED" />',
+  '<img src="/opt/cursor/artifacts/fe13_root_connection_closed.webp" alt="Deployed site root shows ERR_CONNECTION_CLOSED" />',
+  "",
+  "VERIFY_RESULT: FAIL - Live site unreachable from this VM.",
+].join("\n");
+
 test("parseVerifyFindings accepts plain Case N headings, PARTIAL FAIL, and skips --- / Verdict", () => {
   const parsed = parseVerifyFindings(FE13_FINDINGS);
 
@@ -327,6 +349,89 @@ test("parseVerifyFindings uses the rightmost status marker when a case title con
   );
 });
 
+test("parseVerifyFindings reads one case per Case/Result table row when headings are absent", () => {
+  const parsed = parseVerifyFindings(SCREENSHOT_FINDINGS);
+
+  assert.equal(parsed.cases.length, 5);
+  assert.deepEqual(
+    parsed.cases.map((c) => ({ title: c.title, status: c.status })),
+    [
+      { title: "API quotes check", status: "fail" },
+      { title: "Sequential GLOBAL_QUOTE pacing", status: "fail" },
+      { title: "Pacing on throttle/lookup failure", status: "fail" },
+      { title: "Holdings live refresh", status: "fail" },
+      { title: "SSR snapshot first paint", status: "fail" },
+    ],
+  );
+  assert.ok(parsed.cases[0].evidence.some((line) => line.includes("TLS reset on quotes URL")));
+  assert.ok(parsed.cases[1].evidence.some((line) => line.includes("cannot reach deployed API")));
+  assert.ok(parsed.cases[2].evidence.some((line) => line.includes("site unreachable")));
+  assert.ok(parsed.cases[3].evidence.some((line) => line.includes("live poll never ran")));
+  assert.ok(parsed.cases[4].evidence.some((line) => line.includes("root also ERR_CONNECTION_CLOSED")));
+
+  const allEvidence = parsed.cases.flatMap((c) => c.evidence);
+  assert.ok(allEvidence.some((line) => line.includes("Quotes API URL shows ERR_CONNECTION_CLOSED")));
+  assert.ok(allEvidence.some((line) => line.includes("Deployed site root shows ERR_CONNECTION_CLOSED")));
+  assert.ok(!allEvidence.some((line) => /<img/i.test(line)));
+  assert.ok(!parsed.preamble.some((line) => line.includes("| # | Case | Result")));
+  assert.ok(parsed.preamble.some((line) => line.includes("Portfolio prices look stale")));
+  assert.equal(parsed.verdictStatus, "fail");
+  assert.match(parsed.verdictSummary ?? "", /Live site unreachable from this VM/);
+});
+
+test("parseVerifyFindings omits post-Verdict narrative on the Case/Result table path", () => {
+  // Table path (no Case N headings): heading parse skips after-Verdict prose via
+  // afterVerdictLabel, but tryParseCaseResultTable currently keeps that narrative.
+  const findings = [
+    "Site reachable on DNS; TLS still failing.",
+    "",
+    "| # | Case | Result | Evidence |",
+    "| --- | --- | --- | --- |",
+    "| 1 | API quotes check | FAIL (blocked) | TLS reset on quotes URL |",
+    "| 2 | Holdings live refresh | FAIL (blocked) | live poll never ran |",
+    "",
+    "Verdict",
+    "acceptance criteria not met on production",
+    "VERIFY_RESULT: FAIL - Live site unreachable",
+  ].join("\n");
+
+  const parsed = parseVerifyFindings(findings);
+
+  assert.equal(parsed.cases.length, 2);
+  assert.deepEqual(
+    parsed.cases.map((c) => ({ title: c.title, status: c.status })),
+    [
+      { title: "API quotes check", status: "fail" },
+      { title: "Holdings live refresh", status: "fail" },
+    ],
+  );
+  // Heading parse drops this via afterVerdictLabel; the table path must too.
+  const leaked = [...parsed.preamble, ...parsed.cases.flatMap((c) => c.evidence)].filter((line) =>
+    /acceptance criteria not met/i.test(line),
+  );
+  assert.deepEqual(leaked, []);
+  assert.equal(parsed.verdictStatus, "fail");
+  assert.match(parsed.verdictSummary ?? "", /Live site unreachable/);
+});
+
+test("parseVerifyFindings keeps heading-based cases and does not invent cases from an inner Case/Result table", () => {
+  const parsed = parseVerifyFindings(
+    [
+      "Case 1 — Heading wins — PASS",
+      "| # | Case | Result | Evidence |",
+      "| --- | --- | --- | --- |",
+      "| 1 | Invented from table | FAIL | should not become a case |",
+      "Observed prose.",
+    ].join("\n"),
+  );
+
+  assert.equal(parsed.cases.length, 1);
+  assert.equal(parsed.cases[0].title, "Case 1 — Heading wins");
+  assert.equal(parsed.cases[0].status, "pass");
+  assert.ok(!parsed.cases.some((c) => c.title === "Invented from table"));
+  assert.ok(parsed.cases[0].evidence.some((line) => line.includes("Observed prose.")));
+});
+
 test("formatVerifyResultsSlack renders FE-13 plain-case findings as scannable Block Kit", () => {
   const iss = {
     ...issue([]),
@@ -352,6 +457,36 @@ test("formatVerifyResultsSlack renders FE-13 plain-case findings as scannable Bl
   assert.equal(blocks[0].type, "header");
   assert.ok(!msg.text.includes("Case 1 — Back-to-back quotes always live — FAIL"));
   assert.match(msg.text, /VERIFY_RESULT: FAIL — Quote TTL cache still active/);
+});
+
+test("screenshot-like table findings produce organized Block Kit, not pipes or HTML", () => {
+  const iss = {
+    ...issue([]),
+    identifier: "FE-13",
+    title: "Always fetch live quotes on /api/market/quotes",
+    url: "https://linear.app/acme/issue/FE-13",
+  };
+  const msg = formatVerifyResultsSlack(iss, "verify", "fail", SCREENSHOT_FINDINGS);
+  const blocks = blocksOf(msg);
+  const payload = `${msg.text}\n${JSON.stringify(msg.blocks ?? [])}`;
+  const sections = blocks.filter((b) => b.type === "section").map((b) => b.text?.text ?? "");
+  const caseSections = sections.filter((t) => t.startsWith("❌ *"));
+  assert.equal(caseSections.length, 5);
+  assert.equal(blocks[0].type, "header");
+  assert.equal(blocks[0].text?.text, "❌ FE-13 · verify failed");
+  assert.match(blocks[1].text?.text ?? "", /0\/5 checks passed/);
+  assert.match(blocks[1].text?.text ?? "", /View on Linear/);
+  assert.equal(blocks[2].type, "divider");
+  assert.ok(caseSections.some((t) => t.startsWith("❌ *API quotes check*")));
+  assert.ok(caseSections.some((t) => t.startsWith("❌ *SSR snapshot first paint*")));
+  assert.ok(caseSections.some((t) => t.includes("TLS reset on quotes URL")));
+
+  assert.ok(payload.includes("Quotes API URL shows ERR_CONNECTION_CLOSED"));
+  assert.ok(payload.includes("Deployed site root shows ERR_CONNECTION_CLOSED"));
+  assert.ok(!/<img/i.test(payload));
+  assert.ok(!payload.includes("| # | Case | Result |"));
+  assert.ok(!msg.text.includes("test-plan results"));
+  assert.match(msg.text, /VERIFY_RESULT: FAIL.*Live site unreachable from this VM/);
 });
 
 // --- formatVerifyResultsSlack: per-case verify results posted to Slack ---
@@ -481,4 +616,19 @@ test("formatVerifyResultsSlack falls back to the flat rendering for unstructured
   assert.ok(msg.text.includes("truncated — full findings on the Linear ticket"));
   // Flat path inherits the organized statusBlocks shape: header first, not a headline section.
   assert.equal(blocksOf(msg)[0].type, "header");
+});
+
+test("formatVerifyResultsSlack sanitizes pipes and img tags when findings do not parse into cases", () => {
+  const findings = [
+    "the agent rambled without case headings",
+    "| leftover | table | row |",
+    '<img src="/opt/cursor/artifacts/fe13_quotes_api_connection_closed.webp" alt="Quotes API URL shows ERR_CONNECTION_CLOSED" />',
+  ].join("\n");
+  const msg = formatVerifyResultsSlack(issue([]), "verify", "fail", findings);
+  const payload = `${msg.text}\n${JSON.stringify(msg.blocks ?? [])}`;
+
+  assert.equal(parseVerifyFindings(findings).cases.length, 0);
+  assert.ok(payload.includes("Quotes API URL shows ERR_CONNECTION_CLOSED"));
+  assert.ok(!/<img/i.test(payload));
+  assert.ok(!payload.includes("| leftover | table | row |"));
 });

@@ -15,7 +15,7 @@ import {
   parseVerifyFindingsIds,
   postComment,
 } from "../integrations/linear.js";
-import { postSlack, statusBlocks, type SlackMessage } from "../integrations/slack.js";
+import { postSlack, sanitizeSlackLine, statusBlocks, type SlackMessage } from "../integrations/slack.js";
 import type { LinearIssuePayload } from "../types.js";
 
 /**
@@ -50,7 +50,7 @@ ${findings.trim()}`;
 function findingsToSlackLines(findings: string): string[] {
   return findings
     .split("\n")
-    .map((line) => line.trim().replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "*"))
+    .map((line) => sanitizeSlackLine(line.trim().replace(/^#{1,6}\s+/, "")))
     .filter(Boolean);
 }
 
@@ -88,9 +88,98 @@ const CASE_STATUS_TAIL =
   /^(.+)\s*[—–-]\s*\*{0,2}(PARTIAL\s+FAIL|PASS|FAIL)\*{0,2}\s*(.*)$/i;
 const SKIP_AS_EVIDENCE = /^(?:-{3,}|\*{0,2}Verdict\*{0,2}:?)$/i;
 const VERDICT_LINE = /^VERIFY_RESULT:\s*(PASS|FAIL)\b\s*(?:[—–-]\s*(.*))?$/i;
+const TABLE_SEP_CELL = /^:?-{2,}:?$/;
 
 function mapCaseStatus(token: string): "pass" | "fail" {
   return /fail/i.test(token) ? "fail" : "pass";
+}
+
+function markdownTableCells(line: string): string[] | null {
+  if (!line.includes("|")) return null;
+  return line
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function caseResultTableColumns(
+  cells: string[],
+): { caseIdx: number; resultIdx: number; evidenceIdx: number } | null {
+  const lower = cells.map((cell) => cell.toLowerCase());
+  const caseIdx = lower.indexOf("case");
+  const resultIdx = lower.indexOf("result");
+  if (caseIdx < 0 || resultIdx < 0) return null;
+  return { caseIdx, resultIdx, evidenceIdx: lower.indexOf("evidence") };
+}
+
+function sanitizeParsedLine(line: string): string {
+  const stripped = line.replace(HEADING_PREFIX, "");
+  return /<img/i.test(stripped) ? sanitizeSlackLine(stripped) : stripped;
+}
+
+/** Case/Result table only when no heading cases exist. Separator cells must not become a case. */
+function tryParseCaseResultTable(findings: string): { cases: VerifyCaseResult[]; preamble: string[] } | null {
+  const cases: VerifyCaseResult[] = [];
+  const preamble: string[] = [];
+  let columns: ReturnType<typeof caseResultTableColumns> = null;
+  let pastTable = false;
+  // After a standalone Verdict label, skip narrative until VERIFY_RESULT (full text stays on Linear).
+  let afterVerdictLabel = false;
+
+  for (const raw of findings.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (VERDICT_LINE.test(line)) {
+      afterVerdictLabel = false;
+      continue;
+    }
+
+    if (SKIP_AS_EVIDENCE.test(line)) {
+      if (/verdict/i.test(line)) afterVerdictLabel = true;
+      continue;
+    }
+    if (afterVerdictLabel) continue;
+
+    if (!columns) {
+      const headerCells = markdownTableCells(line);
+      const parsedCols = headerCells ? caseResultTableColumns(headerCells) : null;
+      if (parsedCols) {
+        columns = parsedCols;
+        continue;
+      }
+      const cleaned = sanitizeParsedLine(line);
+      if (cleaned) preamble.push(cleaned);
+      continue;
+    }
+
+    if (!pastTable) {
+      const cells = markdownTableCells(line);
+      if (cells && cells.every((cell) => TABLE_SEP_CELL.test(cell))) continue;
+      if (cells) {
+        const title = cells[columns.caseIdx] ?? "";
+        const result = cells[columns.resultIdx] ?? "";
+        if (title && result) {
+          const evidenceCell = columns.evidenceIdx >= 0 ? (cells[columns.evidenceIdx] ?? "").trim() : "";
+          cases.push({
+            title,
+            status: mapCaseStatus(result),
+            evidence: evidenceCell ? [evidenceCell] : [],
+          });
+          continue;
+        }
+      }
+      pastTable = true;
+    }
+
+    const trailing = sanitizeParsedLine(line);
+    if (!trailing) continue;
+    if (cases.length > 0) cases[cases.length - 1].evidence.push(trailing);
+    else preamble.push(trailing);
+  }
+
+  return cases.length > 0 ? { cases, preamble } : null;
 }
 
 /** Splits a case heading body into title, status, and any same-line evidence. */
@@ -153,7 +242,15 @@ export function parseVerifyFindings(findings: string): ParsedVerifyFindings {
       continue;
     }
 
-    (cases.length > 0 ? cases[cases.length - 1].evidence : preamble).push(line.replace(HEADING_PREFIX, ""));
+    const cleaned = sanitizeParsedLine(line);
+    if (cleaned) {
+      (cases.length > 0 ? cases[cases.length - 1].evidence : preamble).push(cleaned);
+    }
+  }
+
+  const tableShaped = cases.length === 0 ? tryParseCaseResultTable(findings) : null;
+  if (tableShaped) {
+    return { cases: tableShaped.cases, verdictStatus, verdictSummary, preamble: tableShaped.preamble };
   }
 
   return { cases, verdictStatus, verdictSummary, preamble };
@@ -184,7 +281,7 @@ function evidenceForSlack(lines: string[]): string[] {
 
 /** Joins parsed lines (evidence or preamble) into a capped mrkdwn snippet. */
 function mrkdwnSnippet(lines: string[]): string {
-  const text = lines.map((line) => line.replace(/\*\*/g, "*")).join("\n");
+  const text = lines.map((line) => sanitizeSlackLine(line)).filter((line) => line.length > 0).join("\n");
   return capText(text, MRKDWN_SNIPPET_CHAR_CAP);
 }
 
