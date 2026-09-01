@@ -31,7 +31,7 @@ Secrets live only in `.env` (gitignored). This doc references them as env vars.
 | Trigger label / state | `cursor-fleet` / `In Progress` |
 | Target repo | `hsaab/compound` (`GH_OWNER=hsaab`, `DEPLOY_TARGET_REPO=compound`) |
 | Conductor repo | `hsaab/conductor` |
-| Cloud agent model | `composer-2.5` |
+| Cloud agent model | `grok-4.6` extra high (effort `xhigh`, fast `true`) |
 | Datadog site | `us5.datadoghq.com` (PAT is US5-scoped; Bearer auth) |
 | Synthetic test | `44p-j68-jai` — "compound — market quotes latency", `responseTime < 1500ms`, every 60s |
 | Datadog webhook | `conductor_cursor_automation` → `/webhook/datadog?secret=$DATADOG_WEBHOOK_SECRET` |
