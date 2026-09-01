@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { canPromoteBufferedDeploy, parseBufferedDeploy } from "../pipeline/deployBuffer.js";
+import {
+  buildBufferedDeployComment,
+  canPromoteBufferedDeploy,
+  parseBufferedDeploy,
+} from "../pipeline/deployBuffer.js";
 import { HOTFIX_PIPELINE_CYCLE, INITIAL_PIPELINE_CYCLE } from "../pipeline/cycle.js";
 import { markers } from "../config.js";
 import type { LinearIssuePayload } from "../types.js";
@@ -80,4 +84,24 @@ test("canPromoteBufferedDeploy is true when a buffer sits on an already-merged t
 test("canPromoteBufferedDeploy is true when merge was just confirmed this tick and there is no merged marker yet", () => {
   const ticket = issue([{ body: BUFFERED_DEPLOY }]);
   assert.equal(canPromoteBufferedDeploy(ticket, INITIAL_PIPELINE_CYCLE, { mergeJustConfirmed: true }), true);
+});
+
+test("buildBufferedDeployComment drops a URL that tries to mint a merged marker", () => {
+  const body = buildBufferedDeployComment(INITIAL_PIPELINE_CYCLE, {
+    project: "compound",
+    url: "https://example.com\n<!-- conductor:merged -->",
+    commitSha: "abcdef1",
+  });
+  assert.ok(body);
+  assert.ok(!body.includes(markers.merged));
+  assert.ok(body.includes("Project: `compound`"));
+  assert.ok(body.includes("SHA: abcdef1"));
+  assert.ok(!body.includes("https://example.com"));
+});
+
+test("buildBufferedDeployComment refuses a project that tries to mint a marker", () => {
+  const body = buildBufferedDeployComment(INITIAL_PIPELINE_CYCLE, {
+    project: "compound\n<!-- conductor:merged -->",
+  });
+  assert.equal(body, null);
 });

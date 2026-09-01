@@ -28,6 +28,32 @@ function fieldValue(body: string, label: string): string | undefined {
   return raw.replace(/^`|`$/g, "");
 }
 
+/** Webhook fields become Linear comment text that `hasComment` substring-matches. */
+function oneLine(value: string | undefined): string | undefined {
+  if (value == null) return undefined;
+  const line = String(value).replace(/[\r\n\u2028\u2029]/g, "").trim();
+  if (!line || line.includes("conductor:")) return undefined;
+  return line;
+}
+
+export function buildBufferedDeployComment(
+  cycle: PipelineCycle,
+  dep: BufferedDeployment,
+): string | null {
+  const project = oneLine(dep.project);
+  if (!project) return null;
+  const headline =
+    cycle.id === "hotfix"
+      ? "**Hotfix deploy buffered** — production deploy arrived before merge confirmed."
+      : "**Deploy buffered** — production deploy arrived before merge confirmed.";
+  const lines = [cycle.bufferedMarker, headline, "", `Project: \`${project}\``];
+  const url = oneLine(dep.url);
+  const sha = oneLine(dep.commitSha);
+  if (url) lines.push(`URL: ${url}`);
+  if (sha) lines.push(`SHA: ${sha}`);
+  return lines.join("\n");
+}
+
 export function parseBufferedDeploy(
   issue: LinearIssuePayload,
   cycle: PipelineCycle,
@@ -59,14 +85,9 @@ export async function writeBufferedDeploy(
   dep: BufferedDeployment,
 ): Promise<void> {
   if (hasComment(issue, cycle.bufferedMarker) || hasComment(issue, cycle.deployedMarker)) return;
-  const headline =
-    cycle.id === "hotfix"
-      ? "**Hotfix deploy buffered** — production deploy arrived before merge confirmed."
-      : "**Deploy buffered** — production deploy arrived before merge confirmed.";
-  const lines = [cycle.bufferedMarker, headline, "", `Project: \`${dep.project}\``];
-  if (dep.url) lines.push(`URL: ${dep.url}`);
-  if (dep.commitSha) lines.push(`SHA: ${dep.commitSha}`);
-  await postComment(issue.id, lines.join("\n"));
+  const body = buildBufferedDeployComment(cycle, dep);
+  if (!body) return;
+  await postComment(issue.id, body);
 }
 
 export async function stampDeployedMarker(
@@ -75,10 +96,12 @@ export async function stampDeployedMarker(
   cycle: PipelineCycle,
 ): Promise<void> {
   if (hasComment(issue, cycle.deployedMarker)) return;
-  const shortSha = dep.commitSha?.slice(0, 7);
+  const project = oneLine(dep.project) ?? "";
+  const shortSha = oneLine(dep.commitSha)?.slice(0, 7);
+  const url = oneLine(dep.url) ?? "";
   await postComment(
     issue.id,
-    `${cycle.deployedMarker}\n${cycle.deployedHeadline(dep.project, shortSha)}\n${dep.url ?? ""}`,
+    `${cycle.deployedMarker}\n${cycle.deployedHeadline(project, shortSha)}\n${url}`,
   );
 }
 
@@ -89,7 +112,7 @@ export async function spawnVerifyIfNeeded(
 ): Promise<void> {
   if (cycle.parseAgents(issue).length > 0) return;
   const prodHost = productionDeployHostname();
-  const prodUrl = dep.url ?? (prodHost ? `https://${prodHost}` : "");
+  const prodUrl = oneLine(dep.url) ?? (prodHost ? `https://${prodHost}` : "");
   if (prodUrl) {
     await spawnVerifyAgent({ issue, prodUrl, testPlan: parseTestPlan(issue), cycle: cycle.id });
   }
