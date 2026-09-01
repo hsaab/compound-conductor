@@ -28,6 +28,7 @@ Secrets live only in `.env` (gitignored). This doc references them as env vars.
 | Conductor (orchestrator + dashboard) | `https://conductor-factory.vercel.app` |
 | Compound (target app) | `https://compound-kappa-one.vercel.app` |
 | Latency surface route | `GET /api/market/quotes?tickers=<20-ticker basket>` |
+| Quotes baseline (armed start) | 60s quote TTL cache — `demo-baseline` tag on `hsaab/compound`; hotfix beat lands a 30s TTL |
 | Trigger label / state | `cursor-fleet` / `In Progress` |
 | Target repo | `hsaab/compound` (`GH_OWNER=hsaab`, `DEPLOY_TARGET_REPO=compound`) |
 | Conductor repo | `hsaab/conductor` |
@@ -316,7 +317,9 @@ provide real, recent artifacts. Keep the reconcile loop (5.1) running throughout
 Two start modes (compound's `reset-demo` skill, or conductor's
 `reset-demo-state`, asks beginning vs hotfix):
 
-- **feature** (`pnpm reset-demo`): tickets to Backlog, board empty, baseline must be fast.
+- **feature** (`pnpm reset-demo`): tickets to Backlog, board empty, baseline must be
+  fast **and** match `demo-baseline` (60s quote TTL) — a fast-but-hotfixed 30s TTL
+  fails the gate; `pnpm restore-baseline` re-arms it.
 - **hotfix** (`pnpm reset-demo:hotfix`): after reset, triggers a real FE-13 fleet, waits for
   its PR (does **not** merge), fingerprints the PR head, and leaves FE-13 mid-pipeline
   for the presenter to merge live as the opening beat.
@@ -353,7 +356,7 @@ rehearsal PRs so `main` is back to the fast baseline before the real run.
   acceptance criteria force the slow path on `/api/market/quotes` only (SSR
   snapshot path in `portfolio.ts` is out of scope):
   1. **Unconditional** quote-cache bypass (not market-open scoped — weekends /
-     status errors would otherwise leave the 15-minute closed TTL intact).
+     status errors must not leave any TTL in place; the baseline is a 60s TTL).
   2. Per-symbol `GLOBAL_QUOTE` lookups paced **≥250ms apart**, including on
      per-symbol failures/throttles (so snapshot fallback cannot collapse latency).
   With the 20-ticker basket that is 19 gaps × 250ms ≈ **4,750ms** floor before

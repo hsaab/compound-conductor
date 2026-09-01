@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 /**
- * Restore the target app (compound) back to its fast `/api/market/quotes`
- * baseline so the next FE-13 run can re-introduce the regression cleanly.
+ * Restore the target app (compound) back to its `demo-baseline` state — the
+ * fast `/api/market/quotes` surface with the 60s quote TTL — so the next FE-13
+ * run can re-introduce the regression cleanly.
  *
  * Opt-in counterpart to `reset-demo.mjs`: that script gates; this one fixes.
- * Never force-pushes. Reverts only REGRESSION_SURFACE_FILES from demo-baseline.
+ * Restores on ANY drift of the surface files from the tag, not just when the
+ * FE-13 regression fingerprint is present — a demo run typically ends on the
+ * remediation agent's 30s-TTL hotfix, which is fast but not the armed 60s
+ * baseline. Never force-pushes. Reverts only REGRESSION_SURFACE_FILES.
  *
  *   pnpm restore-baseline
  */
@@ -81,18 +85,8 @@ async function pollBaseline() {
 async function main() {
   console.log(`Restoring ${owner}/${repo} main to the "${baselineRef}" baseline...\n`);
 
-  const regression = await detectRegression(gh, "main", { surfaceFiles });
-  if (!regression.regressed) {
-    console.log("ok main shows no FE-13 regression markers — nothing to restore.");
-    process.exit(0);
-  }
-  console.log(
-    `Detected the FE-13 regression on main (${regression.reasons.length} signal(s)):`,
-  );
-  for (const reason of regression.reasons.slice(0, 6)) console.log(`  - ${reason}`);
-  console.log("");
-
-  const [baseline, main] = await Promise.all([
+  const [regression, baseline, main] = await Promise.all([
+    detectRegression(gh, "main", { surfaceFiles }),
     treeFor(gh, baselineRef),
     treeFor(gh, "main"),
   ]);
@@ -102,6 +96,18 @@ async function main() {
     console.log("ok Surface files already match the baseline — nothing to do.");
     process.exit(0);
   }
+
+  if (regression.regressed) {
+    console.log(
+      `Detected the FE-13 regression on main (${regression.reasons.length} signal(s)):`,
+    );
+    for (const reason of regression.reasons.slice(0, 6)) console.log(`  - ${reason}`);
+  } else {
+    console.log(
+      "main is fast but the quotes surface drifted from the baseline (e.g. a demo run ended on the 30s-TTL hotfix). Restoring the 60s-TTL baseline.",
+    );
+  }
+  console.log("");
 
   console.log(`Restoring ${changes.length} file(s) from ${baselineRef}:`);
   for (const c of changes) console.log(`  ${c.sha ? "revert" : "delete"}  ${c.path}`);
