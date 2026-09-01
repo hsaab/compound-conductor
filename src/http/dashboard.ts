@@ -339,9 +339,12 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }
 
   async function refresh() {
+    // Drop late responses after pause so a hidden tab cannot stamp "updated".
+    if (!pollEnabled) return;
     try {
       const res = await fetch("/api/board?all=1", { cache: "no-store" });
       const data = await res.json();
+      if (!pollEnabled) return;
       const jobs = data.jobs || [];
       const board = document.getElementById("board");
       board.innerHTML = jobs.length ? jobs.map(renderJob).join("") : '<div class="empty">No fleets launched yet. Drag a cursor-fleet ticket into In Progress.</div>';
@@ -349,7 +352,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
       document.querySelectorAll(".logs").forEach((el) => { el.scrollTop = el.scrollHeight; });
       document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
     } catch (err) {
-      document.getElementById("updated").textContent = "reconnecting…";
+      if (pollEnabled) document.getElementById("updated").textContent = "reconnecting…";
     }
   }
 
@@ -358,34 +361,65 @@ export const dashboardHtml = /* html */ `<!doctype html>
   // the "polling of Linear" a presenter may want to freeze mid-demo. boardTimer is
   // the single source of truth. null means paused, so nothing is scheduled and no
   // Linear read can fire until the loop is resumed.
+  //
+  // Hidden tabs also pause (visibility, not focus — a screen-shared but unfocused
+  // dashboard keeps polling). manuallyPaused keeps the Pause button from fighting
+  // that auto-pause: visibility never clears a presenter's freeze.
   const pauseBtn = document.getElementById("pause");
   const pulse = document.querySelector(".live .pulse");
   let boardTimer = null;
+  let pollEnabled = false;
+  let manuallyPaused = false;
+
+  function applyPauseButton() {
+    if (manuallyPaused) {
+      pauseBtn.textContent = "Resume";
+      pauseBtn.setAttribute("aria-pressed", "true");
+      pauseBtn.setAttribute("aria-label", "Resume polling");
+    } else {
+      pauseBtn.textContent = "Pause";
+      pauseBtn.setAttribute("aria-pressed", "false");
+      pauseBtn.setAttribute("aria-label", "Pause polling");
+    }
+  }
 
   function startPolling() {
     if (boardTimer !== null) return;
+    pollEnabled = true;
     refresh(); // poll once now so resuming feels instant instead of waiting 2s
     boardTimer = setInterval(refresh, 2000);
     pulse.classList.remove("paused");
-    pauseBtn.textContent = "Pause";
-    pauseBtn.setAttribute("aria-pressed", "false");
-    pauseBtn.setAttribute("aria-label", "Pause polling");
+    applyPauseButton();
   }
 
-  function stopPolling() {
-    if (boardTimer === null) return;
-    clearInterval(boardTimer);
-    boardTimer = null;
+  function stopPolling(label) {
+    pollEnabled = false;
+    if (boardTimer !== null) {
+      clearInterval(boardTimer);
+      boardTimer = null;
+    }
     pulse.classList.add("paused");
-    document.getElementById("updated").textContent = "paused";
-    pauseBtn.textContent = "Resume";
-    pauseBtn.setAttribute("aria-pressed", "true");
-    pauseBtn.setAttribute("aria-label", "Resume polling");
+    document.getElementById("updated").textContent = label;
+    applyPauseButton();
   }
 
   pauseBtn.addEventListener("click", () => {
-    if (boardTimer === null) startPolling();
-    else stopPolling();
+    if (manuallyPaused) {
+      manuallyPaused = false;
+      if (!document.hidden) startPolling();
+      else applyPauseButton();
+    } else {
+      manuallyPaused = true;
+      stopPolling("paused");
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (boardTimer !== null) stopPolling("paused (tab hidden)");
+    } else if (!manuallyPaused) {
+      startPolling();
+    }
   });
 
   // Tick the in-progress timers locally between polls for a live feel. Frozen
@@ -402,7 +436,12 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }, 1000);
 
   document.getElementById("legend").innerHTML = renderLegend();
-  startPolling();
+  if (document.hidden) {
+    pulse.classList.add("paused");
+    document.getElementById("updated").textContent = "paused (tab hidden)";
+  } else {
+    startPolling();
+  }
 </script>
 </body>
 </html>`;
