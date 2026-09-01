@@ -63,7 +63,7 @@ const ISSUE_FIELDS = `
   state { name }
   labels { nodes { name } }
   comments(first: 100) { nodes { body createdAt } }
-  attachments(last: 25, orderBy: createdAt) { nodes { url createdAt } }
+  attachments(first: 25, orderBy: createdAt) { nodes { url createdAt } }
 `;
 
 export async function fetchIssue(issueId: string): Promise<LinearIssuePayload | null> {
