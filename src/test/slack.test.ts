@@ -101,3 +101,53 @@ test("statusBlocks turns GitHub markdown Slack cannot render into readable Slack
   assert.match(payload, /(?<!\*)\*bold\*(?!\*)/);
   assert.doesNotMatch(payload, /\|\s*table\s*\|/, "a leftover | table | row must not appear as pipe-delimited markdown");
 });
+
+test("an image alt that contains a greater-than sign still shows the alt and hides the artifact path", () => {
+  const msg = statusBlocks("🛠️ compound hotfix deployed to production", [
+    '<img alt="File > Export" src="/opt/cursor/artifacts/fe13.webp">',
+  ]);
+  const payload = slackPayload(msg);
+
+  assert.ok(payload.includes("File > Export"), "quoted img alt text must survive a greater-than inside the alt");
+  assert.ok(!payload.includes("/opt/cursor/artifacts"), "artifact src must not leak when alt contains >");
+  assert.ok(!payload.includes("<img"), "raw <img tags must not leak into Slack text or blocks");
+  assert.ok(!payload.includes("src="), "leftover src= from a truncated img tag must not leak");
+});
+
+test("a labeled field longer than Slack's 2000-character cap still produces a valid payload", () => {
+  const longValue = "x".repeat(2500);
+  const headline = "🛠️ compound hotfix deployed to production";
+  const msg = statusBlocks(headline, [`Error: ${longValue}`]);
+  const blocks = blocksOf(msg);
+
+  const header = blocks[0];
+  assert.equal(header?.type, "header");
+  assert.equal(header?.text?.text, headline);
+
+  const fieldSection = blocks.find((block) => (block.fields?.length ?? 0) > 0);
+  assert.ok(fieldSection, "a labeled Error line should still become a section field");
+  for (const field of fieldSection?.fields ?? []) {
+    assert.ok(
+      field.text.length <= 2000,
+      `Slack section field text must be <= 2000 characters, got ${field.text.length}`,
+    );
+  }
+
+  const last = blocks[blocks.length - 1];
+  assert.equal(last?.type, "context");
+  assert.equal(last?.elements?.[0]?.text, "conductor");
+});
+
+test("TypeScript generics in a status line survive the Slack sanitizer", () => {
+  const genericLine = "Expected Promise<void> but timed out";
+  const autolink = "<https://compound.vercel.app>";
+  const msg = statusBlocks("🛠️ compound hotfix deployed to production", [genericLine, autolink]);
+  const payload = slackPayload(msg);
+
+  assert.ok(payload.includes("Promise<void>"), "TypeScript generics must not be stripped as HTML tags");
+  assert.ok(
+    !payload.includes("Expected Promise but timed out"),
+    "stripping <void> must not leave a silently broken status line",
+  );
+  assert.ok(payload.includes(autolink), "Slack autolink markup must survive next to a generic");
+});
