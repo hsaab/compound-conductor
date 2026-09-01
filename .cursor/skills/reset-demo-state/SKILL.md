@@ -29,7 +29,7 @@ Print `Arming: feature` or `Arming: hotfix` before running.
 |---|---|---|
 | Linear | wipe comments; tickets → Backlog | same wipe, then trigger FE-13 fleet |
 | Board | empty | FE-13 mid-pipeline with open PR |
-| Target app | gate: `/api/market/quotes` fast | same gate, then arm PR (do not merge) |
+| Target app | gate: `/api/market/quotes` fast + at `demo-baseline` (60s quote TTL) | same gate, then arm PR (do not merge) |
 
 ## Prerequisites
 
@@ -48,6 +48,8 @@ pnpm reset-demo:hotfix    # hotfix
 ```
 
 Baseline gate fails → `pnpm restore-baseline` then re-run the same command.
+The gate also fails when main is fast but drifted from `demo-baseline` (e.g. a
+previous run ended on the 30s-TTL hotfix); restore puts the 60s TTL back.
 
 ## Final sanity
 

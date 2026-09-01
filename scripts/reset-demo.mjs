@@ -6,7 +6,9 @@
  *  1. Linear tickets — wipe comments + reaction, move to Backlog (feature)
  *     or arm FE-13 mid-pipeline (hotfix).
  *  2. Conductor — derived from Linear markers; board check is mode-aware.
- *  3. Target app — gate on fast /api/market/quotes baseline (never mutates main).
+ *  3. Target app — gate on the armed /api/market/quotes baseline: fast AND
+ *     matching demo-baseline (60s quote TTL). Never mutates main itself;
+ *     `pnpm restore-baseline` is the fixer.
  *
  * Mode is a CLI argument (not an env var). The reset-demo-state skill picks it
  * from user intent:
@@ -22,8 +24,11 @@
  */
 
 import {
+  REGRESSION_SURFACE_FILES,
   makeGithub,
   detectRegression,
+  diffRestoreSurface,
+  treeFor,
   quotesProbeUrl,
 } from "./github-baseline.mjs";
 
@@ -38,6 +43,7 @@ const {
   DEPLOY_TARGET_REPO = "compound",
   RESET_TICKETS = "FE-5,FE-7,FE-13",
   RESET_TARGET_STATE = "Backlog",
+  BASELINE_TAG = "demo-baseline",
   RESPONSE_TIME_MS = "1500",
   ALLOW_SLOW_BASELINE,
   HOTFIX_TICKET = "FE-13",
@@ -172,6 +178,26 @@ async function checkMainFingerprint() {
     repo: DEPLOY_TARGET_REPO.trim(),
   });
   return detectRegression(gh, "main");
+}
+
+/**
+ * Paths on main whose quotes surface differs from the demo-baseline tag
+ * (which carries the armed 60s quote TTL). Fast-but-drifted counts as a gate
+ * failure: a demo run typically ends on the remediation agent's 30s-TTL
+ * hotfix, which passes the latency probe but is not the armed start state.
+ */
+async function checkBaselineDrift() {
+  if (!githubToken) return null;
+  const gh = makeGithub({
+    token: githubToken,
+    owner: GH_OWNER.trim(),
+    repo: DEPLOY_TARGET_REPO.trim(),
+  });
+  const [baseline, main] = await Promise.all([
+    treeFor(gh, BASELINE_TAG.trim()),
+    treeFor(gh, "main"),
+  ]);
+  return diffRestoreSurface(baseline, main, REGRESSION_SURFACE_FILES).map((c) => c.path);
 }
 
 /** Close open PRs that look like FE-13 / regression arms (owned by reset, not restore). */
@@ -346,6 +372,24 @@ async function checkBaselineGate() {
     console.warn(`\n- Baseline source-of-truth check unavailable: ${err.message}`);
   }
 
+  let drifted = false;
+  try {
+    const driftPaths = await checkBaselineDrift();
+    if (driftPaths === null) {
+      console.log(`- Baseline drift check skipped (set GH_TOKEN to compare main to ${BASELINE_TAG}).`);
+    } else if (driftPaths.length > 0) {
+      drifted = true;
+      console.warn(
+        `! Baseline DRIFTED: ${driftPaths.length} surface file(s) differ from ${BASELINE_TAG} (armed 60s quote TTL):`,
+      );
+      for (const path of driftPaths.slice(0, 6)) console.warn(`    - ${path}`);
+    } else {
+      console.log(`ok Baseline surface matches ${BASELINE_TAG} (armed 60s quote TTL).`);
+    }
+  } catch (err) {
+    console.warn(`- Baseline drift check unavailable: ${err.message}`);
+  }
+
   let liveSlow = false;
   let liveHealthy = false;
   try {
@@ -366,12 +410,13 @@ async function checkBaselineGate() {
   }
 
   // Live latency is primary; fingerprint is best-effort for the TTL shape.
-  const regressed = liveSlow || (ghRegressed && !liveHealthy);
+  // Drift alone also fails: fast-but-hotfixed (30s TTL) is not the armed 60s start.
+  const regressed = liveSlow || drifted || (ghRegressed && !liveHealthy);
   const verifiedHealthy = liveHealthy || (ghHealthy && !liveSlow);
 
   if (regressed) {
     console.error(
-      "\nx Baseline gate FAILED: /api/market/quotes still slow or main is regressed.\n" +
+      "\nx Baseline gate FAILED: /api/market/quotes is slow, regressed, or drifted from the 60s-TTL baseline.\n" +
         "  Fix: run `pnpm restore-baseline`, then re-run `pnpm reset-demo`.\n" +
         "  Override: set ALLOW_SLOW_BASELINE=1 to proceed anyway.",
     );
@@ -386,7 +431,7 @@ async function checkBaselineGate() {
     return true;
   }
 
-  console.log("ok Baseline gate passed: main is on the fast quotes baseline.");
+  console.log("ok Baseline gate passed: main is on the armed 60s-TTL quotes baseline.");
   return false;
 }
 
