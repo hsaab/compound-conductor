@@ -79,6 +79,17 @@ export function attachmentPrUrls(issue: LinearIssuePayload, afterIso: string): s
   return urls;
 }
 
+/**
+ * Merge callers treat any non-empty list as "check these PRs and, if they are
+ * all merged, complete review". A partial list (one attachment, one of two
+ * agent PRs) would therefore ship the fleet while other agents never opened
+ * or merged theirs. Return the complete set or nothing.
+ */
+function completeMergeSet(spawnedCount: number, urls: string[]): string[] {
+  if (spawnedCount > 0 && urls.length !== spawnedCount) return [];
+  return urls;
+}
+
 function buildPrUrls(issue: LinearIssuePayload): string[] {
   const spawned = parseSpawnedAgents(issue);
   const results = parseAgentResults(issue);
@@ -90,9 +101,25 @@ function buildPrUrls(issue: LinearIssuePayload): string[] {
   if (spawned.length > 0 && fromAgents.length === spawned.length) return fromAgents;
 
   const fleetStartedAt = commentCreatedAt(issue, markers.fleetStarted);
-  if (!fleetStartedAt) return fromAgents;
+  const urls = fleetStartedAt
+    ? [...new Set([...fromAgents, ...attachmentPrUrls(issue, fleetStartedAt)])]
+    : fromAgents;
+  return completeMergeSet(spawned.length, urls);
+}
 
-  return [...new Set([...fromAgents, ...attachmentPrUrls(issue, fleetStartedAt)])];
+/**
+ * PRs this cycle is allowed to treat as the merge set. Empty until the cycle
+ * is ready (every build agent done on the initial pass) and the URL list is
+ * complete. Shared by reconcile and the deploy webhook so one attached PR
+ * cannot complete review ahead of the rest of the fleet.
+ */
+export function cycleMergePrUrls(
+  cycle: PipelineCycle,
+  issue: LinearIssuePayload,
+  ctx?: MergeContext,
+): string[] {
+  if (!cycle.mergeReady(issue, ctx)) return [];
+  return cycle.prUrls(issue);
 }
 
 function allBuildAgentsDone(issue: LinearIssuePayload, ctx?: MergeContext): boolean {

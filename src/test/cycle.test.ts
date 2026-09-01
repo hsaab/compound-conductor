@@ -1,6 +1,8 @@
 /**
  * Attachment fallback for initial-cycle merge: a GitHub PR Linear attached
  * after fleet-started stands in when agent-done comments still lack `PR:`.
+ * The fallback cannot return fewer URLs than spawned agents, or one attached
+ * already-merged PR would complete review for the rest of the fleet.
  *
  * Run with: pnpm test
  */
@@ -8,7 +10,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { attachmentPrUrls, hotfixPrUrls, INITIAL_PIPELINE_CYCLE } from "../pipeline/cycle.js";
+import {
+  attachmentPrUrls,
+  cycleMergePrUrls,
+  hotfixPrUrls,
+  INITIAL_PIPELINE_CYCLE,
+} from "../pipeline/cycle.js";
 import { markers } from "../config.js";
 import type { LinearIssuePayload } from "../types.js";
 
@@ -16,12 +23,17 @@ const FLEET_STARTED_AT = "2026-06-02T11:00:00.000Z";
 const AFTER_FLEET_START = "2026-06-02T11:05:00.000Z";
 const BEFORE_FLEET_START = "2026-06-01T10:00:00.000Z";
 const PR_URL = "https://github.com/hsaab/compound/pull/145";
+const PR_URL_B = "https://github.com/hsaab/compound/pull/200";
 const HOTFIX_PR_URL = "https://github.com/hsaab/compound/pull/146";
 
 const compoundSpawn =
   `${markers.bridge}\n**Cursor agent spawned**\n\nAgent ID: \`bc-aaa-111\`\nRepo: \`hsaab/compound\``;
+const secondSpawn =
+  `${markers.bridge}\n**Cursor agent spawned**\n\nAgent ID: \`bc-bbb-222\`\nRepo: \`hsaab/compound\``;
 const agentDoneNoPr = `${markers.agentDone("bc-aaa-111")}\nPR: (no PR opened)`;
 const agentDoneWithPr = `${markers.agentDone("bc-aaa-111")}\nPR: ${PR_URL}`;
+const secondDoneNoPr = `${markers.agentDone("bc-bbb-222")}\nPR: (no PR opened)`;
+const secondDoneWithPr = `${markers.agentDone("bc-bbb-222")}\nPR: ${PR_URL_B}`;
 const remediationSpawned =
   `${markers.remediationSpawned("bc-fix-222")}\n${markers.remediated}\nAgent ID: \`bc-fix-222\`\nRepo: \`hsaab/compound\``;
 const remediationDoneWithPr = `${markers.remediationDone("bc-fix-222")}\nPR: ${HOTFIX_PR_URL}`;
@@ -131,6 +143,102 @@ test("the same PR URL on agent-done and a Linear attachment is listed once", () 
     attachments: [{ url: PR_URL, createdAt: AFTER_FLEET_START }],
   });
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL]);
+});
+
+test("two spawned agents and one Linear attachment is not a merge set", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneNoPr },
+      { body: secondDoneNoPr },
+    ],
+    attachments: [{ url: PR_URL, createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
+});
+
+test("two spawned agents and only one agent PR line is not a merge set", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+      { body: secondDoneNoPr },
+    ],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
+});
+
+test("an attachment of the same PR as one agent does not stand in for a second agent", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+      { body: secondDoneNoPr },
+    ],
+    attachments: [{ url: PR_URL, createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
+});
+
+test("attachments still fill a missing agent PR line when every agent then has a distinct URL", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+      { body: secondDoneNoPr },
+    ],
+    attachments: [{ url: PR_URL_B, createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL, PR_URL_B]);
+});
+
+test("two spawned agents that both reported a PR are a merge set", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+      { body: secondDoneWithPr },
+    ],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL, PR_URL_B]);
+});
+
+test("cycleMergePrUrls stays empty until every build agent is done, even if attachments already fill the count", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+    ],
+    attachments: [{ url: PR_URL_B, createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL, PR_URL_B]);
+  assert.deepEqual(cycleMergePrUrls(INITIAL_PIPELINE_CYCLE, ticket), []);
+});
+
+test("cycleMergePrUrls returns the complete set once every build agent is done", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+      { body: secondDoneNoPr },
+    ],
+    attachments: [{ url: PR_URL_B, createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(cycleMergePrUrls(INITIAL_PIPELINE_CYCLE, ticket), [PR_URL, PR_URL_B]);
 });
 
 test("hotfix merge uses only remediation-done PR lines and ignores Linear attachments", () => {

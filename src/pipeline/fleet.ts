@@ -10,6 +10,7 @@ import {
   type AgentRunStatus,
 } from "./agents.js";
 import {
+  cycleMergePrUrls,
   deriveTailStages,
   hotfixPrOpened,
   HOTFIX_PIPELINE_CYCLE,
@@ -618,9 +619,8 @@ async function reconcileMergeForCycle(
     await promoteBufferedDeploy(issue, cycle, { mergeJustConfirmed: false });
     return;
   }
-  if (!cycle.mergeReady(issue, ctx)) return;
 
-  const prUrls = cycle.prUrls(issue);
+  const prUrls = cycleMergePrUrls(cycle, issue, ctx);
   if (prUrls.length === 0) return;
 
   let merged = false;
