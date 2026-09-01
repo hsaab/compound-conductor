@@ -38,7 +38,7 @@ stateDiagram-v2
 | **plan** | Planner cloud agent classifies the ticket, emits one build task per repo, posts a test plan | `/webhook/linear` |
 | **build** | One cloud agent per task opens a PR (fire-and-forget) | fleet spawn + reconcile |
 | **review** | Bugbot reviews each PR; a human merges | GitHub + reconcile merge check |
-| **deploy** | Vercel ships the merge to production | `/webhook/vercel` |
+| **deploy** | Vercel ships the merge to production | `/webhook/vercel`; a deploy-buffered comment is promoted by reconcile after merge |
 | **verify** | Verify cloud agent runs the test plan against prod | verify agent + reconcile |
 | **remediate** | Remediation cloud agent opens a hotfix PR, which loops the pipeline back through review → deploy → verify until the hotfix ships and re-verifies | `/webhook/datadog` or verify fail |
 
@@ -164,7 +164,10 @@ Code: `handleWebhook()` in [`src/index.ts`](src/index.ts); `triggerFleet()` /
 
 The slow work (build, verify, and remediation cloud runs) finishes **out-of-band**.
 The reconciler is the one sweep that picks it all up: it reports build PRs,
-confirms merges, reports hotfix PRs, and closes the verify window. It is driven by
+re-polls done-but-PR-less agents, confirms merges (including a GitHub PR
+attachment created after fleet-started when an agent-done comment still has
+no `PR:`), promotes a deploy-buffered comment after merge, reports hotfix PRs,
+and closes the verify window. It is driven by
 a Vercel Cron backstop, an opportunistic tick fired by dashboard polls, or a
 manual curl.
 
@@ -410,6 +413,8 @@ tag so `reset` can find and delete them all.
 | `conductor:fleet-complete` | when all build agents have reported | posts the one-time "fleet complete" summary |
 | `conductor:merged` | when every build PR has merged on GitHub | advances review/merge on the real merge |
 | `conductor:deployed` | when a production deploy of the target repo succeeds | records the deploy; starts the verify window |
+| `conductor:deploy-buffered` | when a production deploy arrives before merge is confirmed | holds the deploy until reconcile promotes it after merge |
+| `conductor:hotfix-deploy-buffered` | when a hotfix production deploy arrives before hotfix merge is confirmed | holds the hotfix deploy until reconcile promotes it after merge |
 | `conductor:verify-agent id=bc-…` | when the verify agent is dispatched | tracks the verify run distinct from build agents |
 | `conductor:verify-pass` / `conductor:verify-fail` | when the verify agent reports (or the window elapses) | closes verify with a verdict |
 | `conductor:remediated` | when a Datadog alert or verify fail dispatches remediation | starts remediate; dedupes repeat alerts |

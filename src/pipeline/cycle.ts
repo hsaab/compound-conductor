@@ -3,7 +3,9 @@
  * that carries every marker, parser, and copy variant the tail stages need.
  */
 import { markers } from "../config.js";
+import { parsePullRequestUrl } from "../integrations/github.js";
 import {
+  commentCreatedAt,
   hasComment,
   hasRemediationDone,
   parseAgentResults,
@@ -55,12 +57,42 @@ export interface PipelineCycle {
   verifySpawnMarker: (agentId: string) => string;
 }
 
+/**
+ * GitHub PR attachment URLs created strictly after `afterIso` on a repo this
+ * fleet spawned. Attachments are user-writable, so a PR on some other repo
+ * must not become the merge target.
+ */
+export function attachmentPrUrls(issue: LinearIssuePayload, afterIso: string): string[] {
+  const allowedRepos = new Set(
+    parseSpawnedAgents(issue).map((agent) => agent.repo.toLowerCase()),
+  );
+  const urls: string[] = [];
+  for (const attachment of issue.attachments ?? []) {
+    const { url, createdAt } = attachment;
+    if (!url || !createdAt) continue;
+    if (createdAt <= afterIso) continue;
+    const pr = parsePullRequestUrl(url);
+    if (!pr) continue;
+    if (!allowedRepos.has(`${pr.owner}/${pr.repo}`.toLowerCase())) continue;
+    urls.push(url);
+  }
+  return urls;
+}
+
 function buildPrUrls(issue: LinearIssuePayload): string[] {
   const spawned = parseSpawnedAgents(issue);
   const results = parseAgentResults(issue);
-  return spawned
+  const fromAgents = spawned
     .map((agent) => results.get(agent.agentId)?.prUrl)
     .filter((url): url is string => typeof url === "string" && url.length > 0);
+
+  // Attachments fill missing agent PR lines. They are not a second merge set.
+  if (spawned.length > 0 && fromAgents.length === spawned.length) return fromAgents;
+
+  const fleetStartedAt = commentCreatedAt(issue, markers.fleetStarted);
+  if (!fleetStartedAt) return fromAgents;
+
+  return [...new Set([...fromAgents, ...attachmentPrUrls(issue, fleetStartedAt)])];
 }
 
 function allBuildAgentsDone(issue: LinearIssuePayload, ctx?: MergeContext): boolean {

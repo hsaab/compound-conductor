@@ -15,6 +15,7 @@ export interface LinearIssuePayload {
   labels?: Array<{ name: string }>;
   state?: { name: string };
   comments?: Array<{ body?: string | null; createdAt?: string }>;
+  attachments?: Array<{ url?: string; createdAt?: string }>;
   url?: string;
 }
 
@@ -22,9 +23,10 @@ export interface LinearIssuePayload {
 export type LinearConnection<T> = Array<T> | { nodes?: Array<T> };
 
 /** Raw issue shape as returned by Linear before {@link normalizeIssue}. */
-export type LinearIssueRecord = Omit<LinearIssuePayload, "labels" | "comments"> & {
+export type LinearIssueRecord = Omit<LinearIssuePayload, "labels" | "comments" | "attachments"> & {
   labels?: LinearConnection<{ name: string }>;
   comments?: LinearConnection<{ body?: string | null; createdAt?: string }>;
+  attachments?: LinearConnection<{ url?: string; createdAt?: string }>;
 };
 
 /** Outcome of attempting to launch a fleet for an issue. */

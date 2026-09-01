@@ -49,9 +49,11 @@ export function normalizeIssue(issue: LinearIssueRecord): LinearIssuePayload {
     ...issue,
     labels: connectionNodes(issue.labels),
     comments: connectionNodes(issue.comments),
+    attachments: connectionNodes(issue.attachments),
   };
 }
 
+/** Newest 25 attachments by createdAt. Reset does not delete them; fleet-started isolates. */
 const ISSUE_FIELDS = `
   id
   identifier
@@ -61,6 +63,7 @@ const ISSUE_FIELDS = `
   state { name }
   labels { nodes { name } }
   comments(first: 100) { nodes { body createdAt } }
+  attachments(last: 25, orderBy: createdAt) { nodes { url createdAt } }
 `;
 
 export async function fetchIssue(issueId: string): Promise<LinearIssuePayload | null> {
