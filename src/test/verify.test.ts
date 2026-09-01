@@ -479,6 +479,6 @@ test("formatVerifyResultsSlack falls back to the flat rendering for unstructured
   assert.match(msg.text, /✅ ENG-9 — verify passed — test-plan results/);
   assert.ok(msg.text.length < 3200);
   assert.ok(msg.text.includes("truncated — full findings on the Linear ticket"));
-  // Flat path keeps the statusBlocks shape: bold headline section, no header block.
-  assert.equal(blocksOf(msg)[0].type, "section");
+  // Flat path inherits the organized statusBlocks shape: header first, not a headline section.
+  assert.equal(blocksOf(msg)[0].type, "header");
 });
