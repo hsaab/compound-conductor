@@ -200,6 +200,23 @@ test("attachments still fill a missing agent PR line when every agent then has a
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL, PR_URL_B]);
 });
 
+test("extra Linear attachments after the gaps are filled do not empty the merge set", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: secondSpawn },
+      { body: agentDoneWithPr },
+      { body: secondDoneNoPr },
+    ],
+    attachments: [
+      { url: PR_URL_B, createdAt: AFTER_FLEET_START },
+      { url: "https://github.com/hsaab/compound/pull/999", createdAt: AFTER_FLEET_START },
+    ],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL, PR_URL_B]);
+});
+
 test("two spawned agents that both reported a PR are a merge set", () => {
   const ticket = issue({
     comments: [

@@ -83,11 +83,13 @@ export function attachmentPrUrls(issue: LinearIssuePayload, afterIso: string): s
  * Merge callers treat any non-empty list as "check these PRs and, if they are
  * all merged, complete review". A partial list (one attachment, one of two
  * agent PRs) would therefore ship the fleet while other agents never opened
- * or merged theirs. Return the complete set or nothing.
+ * or merged theirs. Return the complete set or nothing. Surplus attachments
+ * after the gaps are filled are ignored — they must not empty the set.
  */
 function completeMergeSet(spawnedCount: number, urls: string[]): string[] {
-  if (spawnedCount > 0 && urls.length !== spawnedCount) return [];
-  return urls;
+  if (spawnedCount <= 0) return urls;
+  if (urls.length < spawnedCount) return [];
+  return urls.slice(0, spawnedCount);
 }
 
 function buildPrUrls(issue: LinearIssuePayload): string[] {
