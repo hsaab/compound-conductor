@@ -57,14 +57,23 @@ export interface PipelineCycle {
   verifySpawnMarker: (agentId: string) => string;
 }
 
-/** GitHub PR attachment URLs created strictly after `afterIso`. */
+/**
+ * GitHub PR attachment URLs created strictly after `afterIso` on a repo this
+ * fleet spawned. Attachments are user-writable, so a PR on some other repo
+ * must not become the merge target.
+ */
 export function attachmentPrUrls(issue: LinearIssuePayload, afterIso: string): string[] {
+  const allowedRepos = new Set(
+    parseSpawnedAgents(issue).map((agent) => agent.repo.toLowerCase()),
+  );
   const urls: string[] = [];
   for (const attachment of issue.attachments ?? []) {
     const { url, createdAt } = attachment;
     if (!url || !createdAt) continue;
     if (createdAt <= afterIso) continue;
-    if (!parsePullRequestUrl(url)) continue;
+    const pr = parsePullRequestUrl(url);
+    if (!pr) continue;
+    if (!allowedRepos.has(`${pr.owner}/${pr.repo}`.toLowerCase())) continue;
     urls.push(url);
   }
   return urls;

@@ -83,6 +83,15 @@ test("a GitHub PR attached before this fleet started is ignored as an old demo P
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
 });
 
+test("a GitHub PR attached on a repo this fleet did not spawn is ignored", async () => {
+  const ticket = issue({
+    comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
+    attachments: [{ url: "https://github.com/other/other/pull/1", createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(await attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
+});
+
 test("Linear attachments that are not GitHub pull requests are ignored", async () => {
   const ticket = issue({
     comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
