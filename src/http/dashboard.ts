@@ -359,17 +359,38 @@ export const dashboardHtml = /* html */ `<!doctype html>
   // Polling control. The board poll is conductor's only Linear-backed loop: every
   // /api/board read hits Linear (through the short TTL cache), so this 2s loop is
   // the "polling of Linear" a presenter may want to freeze mid-demo. boardTimer is
-  // the single source of truth. null means paused, so nothing is scheduled and no
-  // Linear read can fire until the loop is resumed.
+  // the scheduler. pollGen drops in-flight paints after a pause. manuallyPaused
+  // keeps the Pause button from fighting auto-pause.
   //
-  // Hidden tabs also pause (visibility, not focus — a screen-shared but unfocused
-  // dashboard keeps polling). manuallyPaused keeps the Pause button from fighting
-  // that auto-pause: visibility never clears a presenter's freeze.
+  // Real browser tabs pause on document.hidden (visibility, not focus), so a
+  // screen-shared but unfocused Chrome window keeps polling. Cursor / VS Code's
+  // embedded browser never flips hidden when you click the editor, so that
+  // surface also pauses when the webview loses focus.
   const pauseBtn = document.getElementById("pause");
   const pulse = document.querySelector(".live .pulse");
   let boardTimer = null;
   let pollGen = 0;
   let manuallyPaused = false;
+
+  function inIdeBrowser() {
+    try {
+      if (window !== window.top) return true;
+    } catch (err) {
+      return true;
+    }
+    if (typeof acquireVsCodeApi === "function") return true;
+    return /Electron|VSCode|Cursor/i.test(navigator.userAgent || "");
+  }
+
+  function isBackgrounded() {
+    if (document.hidden) return true;
+    if (inIdeBrowser() && !document.hasFocus()) return true;
+    return false;
+  }
+
+  function backgroundLabel() {
+    return document.hidden ? "paused (tab hidden)" : "paused (editor idle)";
+  }
 
   function applyPauseButton() {
     if (manuallyPaused) {
@@ -384,7 +405,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }
 
   function startPolling() {
-    if (manuallyPaused) return;
+    if (manuallyPaused || isBackgrounded()) return;
     if (boardTimer !== null) return;
     refresh(); // poll once now so resuming feels instant instead of waiting 2s
     boardTimer = setInterval(refresh, 2000);
@@ -403,10 +424,18 @@ export const dashboardHtml = /* html */ `<!doctype html>
     applyPauseButton();
   }
 
+  function syncPolling() {
+    if (isBackgrounded()) {
+      if (boardTimer !== null) stopPolling(backgroundLabel());
+    } else if (!manuallyPaused) {
+      startPolling();
+    }
+  }
+
   pauseBtn.addEventListener("click", () => {
     if (manuallyPaused) {
       manuallyPaused = false;
-      if (!document.hidden) startPolling();
+      if (!isBackgrounded()) startPolling();
       else applyPauseButton();
     } else {
       manuallyPaused = true;
@@ -414,13 +443,11 @@ export const dashboardHtml = /* html */ `<!doctype html>
     }
   });
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      if (boardTimer !== null) stopPolling("paused (tab hidden)");
-    } else if (!manuallyPaused) {
-      startPolling();
-    }
-  });
+  document.addEventListener("visibilitychange", syncPolling);
+  window.addEventListener("blur", syncPolling);
+  window.addEventListener("focus", syncPolling);
+  document.addEventListener("freeze", syncPolling);
+  document.addEventListener("resume", syncPolling);
 
   // Tick the in-progress timers locally between polls for a live feel. Frozen
   // while paused so the whole board reads as stopped, not half-live.
@@ -436,8 +463,8 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }, 1000);
 
   document.getElementById("legend").innerHTML = renderLegend();
-  if (document.hidden) {
-    stopPolling("paused (tab hidden)");
+  if (isBackgrounded()) {
+    stopPolling(backgroundLabel());
   } else {
     startPolling();
   }
