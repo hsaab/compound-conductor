@@ -37,6 +37,52 @@ test("summarizeJob reports an in-progress fleet's start time and elapsed seconds
   assert.equal(job.agentsPending, 1);
 });
 
+test("summarizeJob keeps a late PR URL when Linear lists the no-PR agent-done last", () => {
+  const job = summarizeJob(
+    issue([
+      { body: markers.fleetStarted },
+      { body: compoundSpawn },
+      { body: `${markers.agentDone("bc-aaa-111")}\nPR: https://github.com/hsaab/compound/pull/7` },
+      { body: `${markers.agentDone("bc-aaa-111")}\nPR: (no PR opened)` },
+    ]),
+    NOW,
+  );
+  assert.equal(job.agents.find((agent) => agent.agentId === "bc-aaa-111")?.prUrl, "https://github.com/hsaab/compound/pull/7");
+});
+
+test("agentsMissingPrUrl treats a finished agent with no PR as still missing a URL", async () => {
+  const { agentsMissingPrUrl } = await import("../pipeline/fleet.js");
+  const missing = agentsMissingPrUrl(
+    [{ agentId: "bc-aaa-111", repo: "hsaab/compound" }],
+    new Set(["bc-aaa-111"]),
+    new Map([["bc-aaa-111", { prUrl: undefined }]]),
+  );
+  assert.deepEqual(
+    missing.map((agent) => agent.agentId),
+    ["bc-aaa-111"],
+  );
+});
+
+test("agentsMissingPrUrl does not treat a finished agent with a PR as missing", async () => {
+  const { agentsMissingPrUrl } = await import("../pipeline/fleet.js");
+  const missing = agentsMissingPrUrl(
+    [{ agentId: "bc-aaa-111", repo: "hsaab/compound" }],
+    new Set(["bc-aaa-111"]),
+    new Map([["bc-aaa-111", { prUrl: "https://github.com/hsaab/compound/pull/7" }]]),
+  );
+  assert.deepEqual(missing, []);
+});
+
+test("agentsMissingPrUrl does not treat a still-running agent as missing a PR", async () => {
+  const { agentsMissingPrUrl } = await import("../pipeline/fleet.js");
+  const missing = agentsMissingPrUrl(
+    [{ agentId: "bc-aaa-111", repo: "hsaab/compound" }],
+    new Set(),
+    new Map(),
+  );
+  assert.deepEqual(missing, []);
+});
+
 test("summarizeJob tracks one agent per repo across a multi-repo ticket", () => {
   // FE-5 fans out to compound + server. Each spawn is its own marker comment, so
   // the comment-thread state store records one agent per repo. Build stays running
@@ -281,6 +327,23 @@ test("a remediation run that opened no PR does not loop the pipeline back", () =
   assert.equal(job.stages.review, "done");
   assert.equal(job.stages.deploy, "done");
   assert.equal(job.stages.remediate, "done");
+});
+
+test("jobNeedsReconcile stays true after a no-PR remediates report once verify findings landed", () => {
+  // Datadog-after-green-verify: remediates first-reports no PR, remediates is
+  // done, and the verify agent is no longer pending. Without this tick the
+  // late-PR poll in reconcileRemediation never runs on Hobby.
+  const job = summarizeJob(
+    issue([
+      ...remediationDispatchedBase,
+      { body: `${markers.verifyPass}\n${markers.verifyFindings("bc-verify-1")}\n**✅ Verify passed**` },
+      { body: `${markers.remediationDone("bc-fix-222")}\nPR: (no PR opened)` },
+    ]),
+    NOW,
+  );
+  assert.equal(job.stages.remediate, "done");
+  assert.equal(job.agentsPending, 0);
+  assert.equal(jobNeedsReconcile(job), true);
 });
 
 test("a failed hotfix re-verify flags verify and keeps remediation open", () => {

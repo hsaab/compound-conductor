@@ -17,6 +17,8 @@ test("isRunReportable reports a published PR even while the run is still running
 test("isRunReportable reports a terminal run that produced no PR", () => {
   // A finished/cancelled/errored run with no PR has nothing more coming, so it
   // is reportable (and surfaces as a build with no PR rather than hanging).
+  // First-report meaning is frozen: late-PR recovery posts a second done
+  // comment later and must not change this gate.
   assert.equal(isRunReportable({ terminal: true, status: "finished" }), true);
   assert.equal(isRunReportable({ terminal: true, status: "cancelled" }), true);
 });

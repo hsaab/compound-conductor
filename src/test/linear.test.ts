@@ -13,7 +13,9 @@ import {
   hasComment,
   isBridgeComment,
   issueRefFromBody,
+  parseAgentResults,
   parseDoneAgentIds,
+  parseRemediationResults,
   parseSpawnedAgents,
   parseTestPlan,
 } from "../integrations/linear.js";
@@ -112,6 +114,35 @@ test("parseTestPlan reads cases from the fenced JSON block in a test-plan commen
 \`\`\``;
   const cases = parseTestPlan(issueWith([body]));
   assert.deepEqual(cases, [{ title: "Chat opens", steps: "Click advisor widget" }]);
+});
+
+const latePrUrl = "https://github.com/hsaab/compound/pull/7";
+const lateHotfixPrUrl = "https://github.com/hsaab/compound/pull/9";
+const agentDoneNoPr = `${markers.agentDone("bc-aaa-111")}\nPR: (no PR opened)`;
+const agentDoneWithPr = `${markers.agentDone("bc-aaa-111")}\nPR: ${latePrUrl}`;
+const remediationDoneNoPr = `${markers.remediationDone("bc-fix-222")}\nPR: (no PR opened)`;
+const remediationDoneWithPr = `${markers.remediationDone("bc-fix-222")}\nPR: ${lateHotfixPrUrl}`;
+
+test("parseAgentResults keeps a late PR URL when Linear lists the earlier no-PR comment last", () => {
+  // Linear does not guarantee chronological order. A recovery comment with a PR
+  // must win even when the first-report no-PR comment is returned last.
+  const results = parseAgentResults(issueWith([agentDoneWithPr, agentDoneNoPr]));
+  assert.equal(results.get("bc-aaa-111")?.prUrl, latePrUrl);
+});
+
+test("parseAgentResults takes a later agent-done PR URL after a first report with no PR", () => {
+  const results = parseAgentResults(issueWith([agentDoneNoPr, agentDoneWithPr]));
+  assert.equal(results.get("bc-aaa-111")?.prUrl, latePrUrl);
+});
+
+test("parseRemediationResults keeps a late hotfix PR URL when Linear lists the earlier no-PR comment last", () => {
+  const results = parseRemediationResults(issueWith([remediationDoneWithPr, remediationDoneNoPr]));
+  assert.equal(results.get("bc-fix-222")?.prUrl, lateHotfixPrUrl);
+});
+
+test("parseRemediationResults takes a later remediation-done PR URL after a first report with no PR", () => {
+  const results = parseRemediationResults(issueWith([remediationDoneNoPr, remediationDoneWithPr]));
+  assert.equal(results.get("bc-fix-222")?.prUrl, lateHotfixPrUrl);
 });
 
 test("bridgeReactionId is deterministic, unique per issue, and UUID-shaped", () => {
