@@ -405,10 +405,11 @@ test("parseVerifyFindings omits post-Verdict narrative on the Case/Result table 
       { title: "Holdings live refresh", status: "fail" },
     ],
   );
-  assert.ok(!parsed.preamble.some((line) => /acceptance criteria not met/i.test(line)));
-  for (const c of parsed.cases) {
-    assert.ok(!c.evidence.some((line) => /acceptance criteria not met/i.test(line)));
-  }
+  // Heading parse drops this via afterVerdictLabel; the table path must too.
+  const leaked = [...parsed.preamble, ...parsed.cases.flatMap((c) => c.evidence)].filter((line) =>
+    /acceptance criteria not met/i.test(line),
+  );
+  assert.deepEqual(leaked, []);
   assert.equal(parsed.verdictStatus, "fail");
   assert.match(parsed.verdictSummary ?? "", /Live site unreachable/);
 });
