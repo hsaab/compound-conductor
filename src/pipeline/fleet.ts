@@ -322,6 +322,12 @@ export function summarizeJob(issue: LinearIssuePayload, nowMs: number): JobSumma
  * webhook, not the reconciler, so a fleet waiting only on deploy needs no tick.
  */
 export function jobNeedsReconcile(job: JobSummary): boolean {
+  // A remediates first-report with no hotfix PR marks remediates done and does
+  // not loop review back. Keep ticking so reconcileRemediation can pick up a
+  // late PR. Build recovery still rides review === "running" until merge.
+  if (job.agents.some((agent) => agent.role === "remediation" && agent.done && !agent.prUrl)) {
+    return true;
+  }
   if (job.agentsPending > 0) return true;
   const { build, review, verify, remediate } = job.stages;
   return build === "running" || review === "running" || verify === "running" || remediate === "running";
@@ -550,6 +556,9 @@ export async function reconcileAll(): Promise<ReconcileSummary> {
       );
     }
 
+    // Re-parse done ids from the fetched issue, not the in-tick `done` set.
+    // A first-report just posted is not on issue.comments, so using `done`
+    // here would treat that agent as missing a PR and double-post.
     const recovered = new Set<string>();
     for (const agent of agentsMissingPrUrl(spawned, parseDoneAgentIds(issue), parseAgentResults(issue))) {
       if (recovered.has(agent.agentId)) continue;

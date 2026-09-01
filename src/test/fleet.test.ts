@@ -329,6 +329,23 @@ test("a remediation run that opened no PR does not loop the pipeline back", () =
   assert.equal(job.stages.remediate, "done");
 });
 
+test("jobNeedsReconcile stays true after a no-PR remediates report once verify findings landed", () => {
+  // Datadog-after-green-verify: remediates first-reports no PR, remediates is
+  // done, and the verify agent is no longer pending. Without this tick the
+  // late-PR poll in reconcileRemediation never runs on Hobby.
+  const job = summarizeJob(
+    issue([
+      ...remediationDispatchedBase,
+      { body: `${markers.verifyPass}\n${markers.verifyFindings("bc-verify-1")}\n**✅ Verify passed**` },
+      { body: `${markers.remediationDone("bc-fix-222")}\nPR: (no PR opened)` },
+    ]),
+    NOW,
+  );
+  assert.equal(job.stages.remediate, "done");
+  assert.equal(job.agentsPending, 0);
+  assert.equal(jobNeedsReconcile(job), true);
+});
+
 test("a failed hotfix re-verify flags verify and keeps remediation open", () => {
   const job = summarizeJob(
     issue([
