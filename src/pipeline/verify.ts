@@ -124,10 +124,23 @@ function tryParseCaseResultTable(findings: string): { cases: VerifyCaseResult[];
   const preamble: string[] = [];
   let columns: ReturnType<typeof caseResultTableColumns> = null;
   let pastTable = false;
+  // After a standalone Verdict label, skip narrative until VERIFY_RESULT (full text stays on Linear).
+  let afterVerdictLabel = false;
 
   for (const raw of findings.split("\n")) {
     const line = raw.trim();
-    if (!line || VERDICT_LINE.test(line) || SKIP_AS_EVIDENCE.test(line)) continue;
+    if (!line) continue;
+
+    if (VERDICT_LINE.test(line)) {
+      afterVerdictLabel = false;
+      continue;
+    }
+
+    if (SKIP_AS_EVIDENCE.test(line)) {
+      if (/verdict/i.test(line)) afterVerdictLabel = true;
+      continue;
+    }
+    if (afterVerdictLabel) continue;
 
     if (!columns) {
       const headerCells = markdownTableCells(line);
