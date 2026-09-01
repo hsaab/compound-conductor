@@ -339,12 +339,12 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }
 
   async function refresh() {
-    // Drop late responses after pause so a hidden tab cannot stamp "updated".
-    if (!pollEnabled) return;
+    const gen = pollGen;
     try {
       const res = await fetch("/api/board?all=1", { cache: "no-store" });
       const data = await res.json();
-      if (!pollEnabled) return;
+      // Late /api/board responses from a stopped generation must not paint.
+      if (gen !== pollGen) return;
       const jobs = data.jobs || [];
       const board = document.getElementById("board");
       board.innerHTML = jobs.length ? jobs.map(renderJob).join("") : '<div class="empty">No fleets launched yet. Drag a cursor-fleet ticket into In Progress.</div>';
@@ -352,7 +352,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
       document.querySelectorAll(".logs").forEach((el) => { el.scrollTop = el.scrollHeight; });
       document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
     } catch (err) {
-      if (pollEnabled) document.getElementById("updated").textContent = "reconnecting…";
+      if (gen === pollGen) document.getElementById("updated").textContent = "reconnecting…";
     }
   }
 
@@ -368,7 +368,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
   const pauseBtn = document.getElementById("pause");
   const pulse = document.querySelector(".live .pulse");
   let boardTimer = null;
-  let pollEnabled = false;
+  let pollGen = 0;
   let manuallyPaused = false;
 
   function applyPauseButton() {
@@ -384,8 +384,8 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }
 
   function startPolling() {
+    if (manuallyPaused) return;
     if (boardTimer !== null) return;
-    pollEnabled = true;
     refresh(); // poll once now so resuming feels instant instead of waiting 2s
     boardTimer = setInterval(refresh, 2000);
     pulse.classList.remove("paused");
@@ -393,7 +393,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }
 
   function stopPolling(label) {
-    pollEnabled = false;
+    pollGen += 1;
     if (boardTimer !== null) {
       clearInterval(boardTimer);
       boardTimer = null;
@@ -437,8 +437,7 @@ export const dashboardHtml = /* html */ `<!doctype html>
 
   document.getElementById("legend").innerHTML = renderLegend();
   if (document.hidden) {
-    pulse.classList.add("paused");
-    document.getElementById("updated").textContent = "paused (tab hidden)";
+    stopPolling("paused (tab hidden)");
   } else {
     startPolling();
   }
