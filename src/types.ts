@@ -84,6 +84,11 @@ export interface JobSummary {
   stages: Record<string, StageState>;
   /** Chronological activity feed for the dashboard's per-fleet logs panel. */
   events: JobEvent[];
+  /**
+   * True when a cycle has a buffered production deploy that has not been stamped
+   * deployed. Used by the reconciler; not rendered on the dashboard.
+   */
+  bufferedDeploy: boolean;
 }
 
 /** Read-only snapshot returned to the mission-control dashboard. */

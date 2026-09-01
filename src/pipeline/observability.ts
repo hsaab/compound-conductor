@@ -13,7 +13,6 @@
  */
 import { deployTargetRepo, githubToken, markers, observeWindowMs, productionDeployHostname } from "../config.js";
 import { checkServiceHealth, datadogServiceUrl, type ServiceHealth } from "../integrations/datadog.js";
-import { spawnVerifyAgent } from "./agents.js";
 import {
   HOTFIX_PIPELINE_CYCLE,
   INITIAL_PIPELINE_CYCLE,
@@ -21,9 +20,10 @@ import {
   mergedCommentForCycle,
   type PipelineCycle,
 } from "./cycle.js";
+import { spawnVerifyIfNeeded, stampDeployedMarker, writeBufferedDeploy } from "./deployBuffer.js";
 import { findActiveFleet } from "./fleet.js";
 import { allPullRequestsMerged } from "../integrations/github.js";
-import { hasComment, parseTestPlan, postComment } from "../integrations/linear.js";
+import { hasComment, postComment } from "../integrations/linear.js";
 import { postSlack, statusBlocks } from "../integrations/slack.js";
 import type { LinearIssuePayload } from "../types.js";
 
@@ -159,48 +159,27 @@ export function buildDeployAnnouncement(
 /**
  * When a GitHub token is configured, confirms the cycle's PR(s) merged before
  * advancing deploy. Returns a blocking result when merge is not yet confirmed.
+ * A blocked production deploy is written to the cycle buffer (first-write-wins).
+ * No token: deploy remains the merge signal and no buffer is written.
  */
 async function confirmMergeBeforeDeploy(
   issue: LinearIssuePayload,
   cycle: PipelineCycle,
+  dep: DeploymentInfo,
 ): Promise<ObservabilityResult | null> {
-  if (!githubToken() || hasComment(issue, cycle.mergedMarker)) return null;
+  if (!githubToken()) return null;
+  if (hasComment(issue, cycle.mergedMarker)) return null;
 
   const prUrls = cycle.prUrls(issue);
   const merged = prUrls.length > 0 ? await allPullRequestsMerged(prUrls) : false;
   if (!merged) {
+    await writeBufferedDeploy(issue, cycle, dep);
     const label = cycle.id === "hotfix" ? "hotfix PR(s)" : "PR(s)";
     return { handled: false, reason: `deploy ignored — ${issue.identifier} ${label} not merged yet` };
   }
 
   await postComment(issue.id, mergedCommentForCycle(cycle, prUrls));
   return null;
-}
-
-async function stampDeployedMarker(
-  issue: LinearIssuePayload,
-  dep: DeploymentInfo,
-  cycle: PipelineCycle,
-): Promise<void> {
-  if (hasComment(issue, cycle.deployedMarker)) return;
-  const shortSha = dep.commitSha?.slice(0, 7);
-  await postComment(
-    issue.id,
-    `${cycle.deployedMarker}\n${cycle.deployedHeadline(dep.project, shortSha)}\n${dep.url ?? ""}`,
-  );
-}
-
-async function spawnVerifyIfNeeded(
-  issue: LinearIssuePayload,
-  dep: DeploymentInfo,
-  cycle: PipelineCycle,
-): Promise<void> {
-  if (cycle.parseAgents(issue).length > 0) return;
-  const prodHost = productionDeployHostname();
-  const prodUrl = dep.url ?? (prodHost ? `https://${prodHost}` : "");
-  if (prodUrl) {
-    await spawnVerifyAgent({ issue, prodUrl, testPlan: parseTestPlan(issue), cycle: cycle.id });
-  }
 }
 
 /**
@@ -215,7 +194,7 @@ async function handleHotfixDeployment(
   dep: DeploymentInfo,
 ): Promise<ObservabilityResult> {
   const cycle = HOTFIX_PIPELINE_CYCLE;
-  const mergeBlock = await confirmMergeBeforeDeploy(issue, cycle);
+  const mergeBlock = await confirmMergeBeforeDeploy(issue, cycle, dep);
   if (mergeBlock) return mergeBlock;
 
   await stampDeployedMarker(issue, dep, cycle);
@@ -257,7 +236,7 @@ export async function handleVercelDeployment(body: unknown): Promise<Observabili
   }
 
   if (issue) {
-    const mergeBlock = await confirmMergeBeforeDeploy(issue, INITIAL_PIPELINE_CYCLE);
+    const mergeBlock = await confirmMergeBeforeDeploy(issue, INITIAL_PIPELINE_CYCLE, dep);
     if (mergeBlock) return mergeBlock;
     await stampDeployedMarker(issue, dep, INITIAL_PIPELINE_CYCLE);
   }

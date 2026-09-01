@@ -116,6 +116,8 @@ export const markers = {
   merged: "<!-- conductor:merged -->",
   /** Posted when a deploy of the target repo succeeds (observability stage begins). */
   deployed: "<!-- conductor:deployed -->",
+  /** Posted when a production deploy arrives before merge is confirmed. */
+  deployBuffered: "<!-- conductor:deploy-buffered -->",
   /** Posted when a test plan is generated during planning (SQA review artifact). */
   testPlan: "<!-- conductor:test-plan -->",
   /** Posted after planning with per-task skill routing decisions. */
@@ -146,6 +148,8 @@ export const markers = {
   hotfixMerged: "<!-- conductor:hotfix-merged -->",
   /** Posted when the merged hotfix deploys to production (hotfix-cycle deploy done). */
   hotfixDeployed: "<!-- conductor:hotfix-deployed -->",
+  /** Posted when a production deploy arrives before hotfix merge is confirmed. */
+  hotfixDeployBuffered: "<!-- conductor:hotfix-deploy-buffered -->",
   /** Needle shared by hotfix verify spawn markers and parsers (no id suffix). */
   hotfixVerifySpawnNeedle: "conductor:hotfix-verify-agent",
   /** Marks a verify agent dispatched against the hotfix deploy (hotfix-cycle re-verify). */

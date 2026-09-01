@@ -628,3 +628,60 @@ test("jobNeedsReconcile is true while verify window is still open", () => {
   );
   assert.equal(jobNeedsReconcile(job), true);
 });
+
+const mergedAwaitingDeploy = [
+  { body: markers.fleetStarted },
+  { body: compoundSpawn },
+  { body: `${markers.agentDone("bc-aaa-111")}\nPR: https://github.com/hsaab/compound/pull/52` },
+  { body: markers.fleetComplete },
+  { body: `${markers.merged}\n**🔀 Merged**` },
+];
+
+const bufferedProductionDeploy = `<!-- conductor:deploy-buffered -->
+**Deploy buffered** — production deploy arrived before merge confirmed.
+
+Project: \`compound\`
+URL: https://compound-example.vercel.app
+SHA: abcdef1234567890
+`;
+
+const bufferedHotfixDeploy = `<!-- conductor:hotfix-deploy-buffered -->
+**Hotfix deploy buffered** — production deploy arrived before merge confirmed.
+
+Project: \`compound\`
+URL: https://compound-example.vercel.app
+SHA: abcdef1234567890
+`;
+
+test("summarizeJob flags a production deploy that arrived before merge as buffered", () => {
+  const job = summarizeJob(issue([...mergedAwaitingDeploy, { body: bufferedProductionDeploy }]), NOW);
+  assert.equal(job.bufferedDeploy, true);
+});
+
+test("summarizeJob clears bufferedDeploy after that cycle is deployed", () => {
+  const job = summarizeJob(
+    issue([...mergedAwaitingDeploy, { body: bufferedProductionDeploy }, { body: markers.deployed }]),
+    NOW,
+  );
+  assert.equal(job.bufferedDeploy, false);
+});
+
+test("summarizeJob flags a hotfix deploy that arrived before hotfix merge as buffered", () => {
+  const job = summarizeJob(
+    issue([...remediationDispatchedBase, hotfixPrOpened, { body: bufferedHotfixDeploy }]),
+    NOW,
+  );
+  assert.equal(job.bufferedDeploy, true);
+});
+
+test("jobNeedsReconcile stays true for a merged fleet sitting on a buffered deploy", () => {
+  const job = summarizeJob(issue([...mergedAwaitingDeploy, { body: bufferedProductionDeploy }]), NOW);
+  assert.equal(jobNeedsReconcile(job), true);
+});
+
+test("jobNeedsReconcile stays false for a happy-path merged fleet waiting on Vercel", () => {
+  const job = summarizeJob(issue(mergedAwaitingDeploy), NOW);
+  assert.equal(job.stages.deploy, "running");
+  assert.equal(jobNeedsReconcile(job), false);
+});
+
