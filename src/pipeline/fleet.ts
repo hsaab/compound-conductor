@@ -47,7 +47,7 @@ import {
 } from "../integrations/linear.js";
 import { planFleet, type PlannedTask } from "./planner.js";
 import { routingCommentBody } from "./routing.js";
-import { postSlack, statusBlocks, type SlackMessage } from "../integrations/slack.js";
+import { postSlack, sanitizeSlackLine, statusBlocks, type SlackMessage } from "../integrations/slack.js";
 import { repoShortName } from "../shared/repo.js";
 import type {
   JobAgent,
@@ -94,7 +94,9 @@ ${json}
  * single-asterisk bold, unlike the double-asterisk Markdown in the Linear comment.
  */
 export function formatTestPlanSlack(issue: LinearIssuePayload, cases: TestCase[]): SlackMessage {
-  const numbered = cases.map((c, i) => `*${i + 1}. ${c.title}*\n${c.steps}`);
+  const numbered = cases.map(
+    (c, i) => `*${i + 1}. ${sanitizeSlackLine(c.title)}*\n${sanitizeSlackLine(c.steps)}`,
+  );
   return statusBlocks(`📋 ${issue.identifier} — test plan ready for SQA`, [
     issue.title,
     `${cases.length} critical check(s), also posted to Linear:`,

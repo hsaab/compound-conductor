@@ -569,6 +569,31 @@ test("formatTestPlanSlack posts every case (title + steps) to Slack, not just a 
   assert.ok(!msg.text.includes("**"));
 });
 
+test("test-plan Slack still lists every case when steps contain GitHub markdown Slack cannot render", () => {
+  const cases: TestCase[] = [
+    { title: "Footer loads", steps: "Open the page; expect **the footer** to render." },
+    { title: "Quote table", steps: "Read the grid then confirm live quotes.\n| Case | Result |\n| --- | --- |" },
+  ];
+  const msg = formatTestPlanSlack(issue([]), cases);
+  const payload = `${msg.text}\n${JSON.stringify(msg.blocks ?? [])}`;
+
+  assert.match(msg.text, /ENG-9 — test plan ready for SQA/);
+  assert.match(msg.text, /2 critical check\(s\), also posted to Linear/);
+  for (const c of cases) {
+    assert.ok(msg.text.includes(c.title), `missing title: ${c.title}`);
+  }
+  assert.ok(payload.includes("Open the page"));
+  assert.ok(payload.includes("the footer"));
+  assert.ok(payload.includes("confirm live quotes"));
+  assert.ok(!payload.includes("**"), "GitHub **bold** in steps must not leak; Slack mrkdwn uses *bold*");
+  assert.match(payload, /(?<!\*)\*the footer\*(?!\*)/);
+  assert.doesNotMatch(
+    payload,
+    /\|\s*Case\s*\|\s*Result\s*\|/,
+    "a leftover | table | row in steps must not appear as pipe-delimited markdown",
+  );
+});
+
 test("jobNeedsReconcile is true while build agents are still pending", () => {
   const job = summarizeJob(
     issue([{ body: markers.fleetStarted }, { body: compoundSpawn }]),
