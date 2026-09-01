@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { hotfixPrUrls, INITIAL_PIPELINE_CYCLE } from "../pipeline/cycle.js";
+import { attachmentPrUrls, hotfixPrUrls, INITIAL_PIPELINE_CYCLE } from "../pipeline/cycle.js";
 import { markers } from "../config.js";
 import type { LinearIssuePayload } from "../types.js";
 
@@ -51,48 +51,34 @@ function fleetWithDoneNoPr(
   ];
 }
 
-/** Dynamic import so the other cases still run if the helper is not exported yet. */
-async function attachmentPrUrls(
-  ticket: LinearIssuePayload,
-  afterIso: string,
-): Promise<string[]> {
-  const cycle = await import("../pipeline/cycle.js");
-  assert.equal(
-    typeof cycle.attachmentPrUrls,
-    "function",
-    "attachmentPrUrls is not exported from src/pipeline/cycle.ts yet",
-  );
-  return cycle.attachmentPrUrls(ticket, afterIso);
-}
-
-test("initial-cycle merge sees a GitHub PR Linear attached after this fleet started, even when agent-done has no PR line", async () => {
+test("initial-cycle merge sees a GitHub PR Linear attached after this fleet started, even when agent-done has no PR line", () => {
   const ticket = issue({
     comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
     attachments: [{ url: PR_URL, createdAt: AFTER_FLEET_START }],
   });
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL]);
-  assert.deepEqual(await attachmentPrUrls(ticket, FLEET_STARTED_AT), [PR_URL]);
+  assert.deepEqual(attachmentPrUrls(ticket, FLEET_STARTED_AT), [PR_URL]);
 });
 
-test("a GitHub PR attached before this fleet started is ignored as an old demo PR", async () => {
+test("a GitHub PR attached before this fleet started is ignored as an old demo PR", () => {
   const ticket = issue({
     comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
     attachments: [{ url: PR_URL, createdAt: BEFORE_FLEET_START }],
   });
-  assert.deepEqual(await attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
+  assert.deepEqual(attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
 });
 
-test("a GitHub PR attached on a repo this fleet did not spawn is ignored", async () => {
+test("a GitHub PR attached on a repo this fleet did not spawn is ignored", () => {
   const ticket = issue({
     comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
     attachments: [{ url: "https://github.com/other/other/pull/1", createdAt: AFTER_FLEET_START }],
   });
-  assert.deepEqual(await attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
+  assert.deepEqual(attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
 });
 
-test("Linear attachments that are not GitHub pull requests are ignored", async () => {
+test("Linear attachments that are not GitHub pull requests are ignored", () => {
   const ticket = issue({
     comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
     attachments: [
@@ -102,7 +88,7 @@ test("Linear attachments that are not GitHub pull requests are ignored", async (
       { url: "https://docs.github.com/en/pull-requests", createdAt: AFTER_FLEET_START },
     ],
   });
-  assert.deepEqual(await attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
+  assert.deepEqual(attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
 });
 
@@ -114,13 +100,25 @@ test("attachments are ignored when the fleet-started comment has no timestamp", 
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
 });
 
-test("a Linear attachment without a createdAt is ignored", async () => {
+test("a Linear attachment without a createdAt is ignored", () => {
   const ticket = issue({
     comments: fleetWithDoneNoPr(FLEET_STARTED_AT),
     attachments: [{ url: PR_URL }],
   });
-  assert.deepEqual(await attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
+  assert.deepEqual(attachmentPrUrls(ticket, FLEET_STARTED_AT), []);
   assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), []);
+});
+
+test("a different attached PR is ignored when every spawned agent already has a PR line", () => {
+  const ticket = issue({
+    comments: [
+      { body: markers.fleetStarted, createdAt: FLEET_STARTED_AT },
+      { body: compoundSpawn },
+      { body: agentDoneWithPr },
+    ],
+    attachments: [{ url: "https://github.com/hsaab/compound/pull/999", createdAt: AFTER_FLEET_START }],
+  });
+  assert.deepEqual(INITIAL_PIPELINE_CYCLE.prUrls(ticket), [PR_URL]);
 });
 
 test("the same PR URL on agent-done and a Linear attachment is listed once", () => {

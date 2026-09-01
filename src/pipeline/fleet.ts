@@ -187,7 +187,8 @@ export type ResetIssueOptions = { wipeAll?: boolean };
  * `fleetStarted` dedupe marker). Used when a ticket leaves "In Progress".
  *
  * When `wipeAll` is true (explicit `/api/reset`), every comment is removed.
- * Otherwise only conductor-authored comments are deleted.
+ * Otherwise only conductor-authored comments are deleted. Attachments stay;
+ * `attachmentPrUrls` ignores any created at or before the next `fleet-started`.
  */
 export async function resetIssue(
   issueId: string,

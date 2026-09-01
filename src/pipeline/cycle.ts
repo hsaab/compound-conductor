@@ -86,6 +86,9 @@ function buildPrUrls(issue: LinearIssuePayload): string[] {
     .map((agent) => results.get(agent.agentId)?.prUrl)
     .filter((url): url is string => typeof url === "string" && url.length > 0);
 
+  // Attachments fill missing agent PR lines. They are not a second merge set.
+  if (spawned.length > 0 && fromAgents.length === spawned.length) return fromAgents;
+
   const fleetStartedAt = commentCreatedAt(issue, markers.fleetStarted);
   if (!fleetStartedAt) return fromAgents;
 

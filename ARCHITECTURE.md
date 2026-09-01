@@ -164,8 +164,10 @@ Code: `handleWebhook()` in [`src/index.ts`](src/index.ts); `triggerFleet()` /
 
 The slow work (build, verify, and remediation cloud runs) finishes **out-of-band**.
 The reconciler is the one sweep that picks it all up: it reports build PRs,
-re-polls done-but-PR-less agents, confirms merges, promotes a deploy-buffered
-comment after merge, reports hotfix PRs, and closes the verify window. It is driven by
+re-polls done-but-PR-less agents, confirms merges (including a GitHub PR
+attachment created after fleet-started when an agent-done comment still has
+no `PR:`), promotes a deploy-buffered comment after merge, reports hotfix PRs,
+and closes the verify window. It is driven by
 a Vercel Cron backstop, an opportunistic tick fired by dashboard polls, or a
 manual curl.
 

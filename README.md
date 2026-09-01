@@ -77,7 +77,7 @@ in Linear comment markers:
 |---|---|---|
 | Plan | `cursor-fleet` ticket to In Progress (`/webhook/linear`) | Planner agent classifies the ticket, emits one build task per repo, and posts a focused test plan (top 3–5 critical checks) for SQA |
 | Build | after planning | One fleet cloud agent per task opens a PR |
-| Review | PR opened → merged | Bugbot reviews the PR; human merges; reconciler confirms merge via GitHub (`merged` marker). A late PR can arrive on a second agent-done, or as a GitHub PR attachment created after fleet-started. |
+| Review | PR opened → merged | Bugbot reviews the PR; human merges; reconciler confirms merge via GitHub (`merged` marker). A late PR can arrive on a second agent-done, or as a GitHub PR attachment created after fleet-started when agent-done still has no PR URL. |
 | Deploy | Vercel `deployment.succeeded` (`/webhook/vercel`) | Conductor records the deploy and spawns the verify agent. A deploy-buffered comment is promoted by reconcile after merge. |
 | Verify | post-deploy | Verify agent runs the test plan against production; reconciler posts pass/fail; Datadog alerts during this window still trigger remediate |
 | Remediate | Datadog alert or verify fail (`/webhook/datadog` / reconcile) | Remediation agent opens a hotfix PR; the loop re-enters review and remediation completes only once the hotfix merges, redeploys, and re-verifies |
