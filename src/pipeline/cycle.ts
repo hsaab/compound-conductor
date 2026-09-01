@@ -3,7 +3,9 @@
  * that carries every marker, parser, and copy variant the tail stages need.
  */
 import { markers } from "../config.js";
+import { parsePullRequestUrl } from "../integrations/github.js";
 import {
+  commentCreatedAt,
   hasComment,
   hasRemediationDone,
   parseAgentResults,
@@ -55,12 +57,30 @@ export interface PipelineCycle {
   verifySpawnMarker: (agentId: string) => string;
 }
 
+/** GitHub PR attachment URLs created strictly after `afterIso`. */
+export function attachmentPrUrls(issue: LinearIssuePayload, afterIso: string): string[] {
+  const urls: string[] = [];
+  for (const attachment of issue.attachments ?? []) {
+    const { url, createdAt } = attachment;
+    if (!url || !createdAt) continue;
+    if (createdAt <= afterIso) continue;
+    if (!parsePullRequestUrl(url)) continue;
+    urls.push(url);
+  }
+  return urls;
+}
+
 function buildPrUrls(issue: LinearIssuePayload): string[] {
   const spawned = parseSpawnedAgents(issue);
   const results = parseAgentResults(issue);
-  return spawned
+  const fromAgents = spawned
     .map((agent) => results.get(agent.agentId)?.prUrl)
     .filter((url): url is string => typeof url === "string" && url.length > 0);
+
+  const fleetStartedAt = commentCreatedAt(issue, markers.fleetStarted);
+  if (!fleetStartedAt) return fromAgents;
+
+  return [...new Set([...fromAgents, ...attachmentPrUrls(issue, fleetStartedAt)])];
 }
 
 function allBuildAgentsDone(issue: LinearIssuePayload, ctx?: MergeContext): boolean {

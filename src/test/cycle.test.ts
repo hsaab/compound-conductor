@@ -41,7 +41,9 @@ function issue(opts: {
   } as LinearIssuePayload;
 }
 
-function fleetWithDoneNoPr(fleetStartedAt?: string): LinearIssuePayload["comments"] {
+function fleetWithDoneNoPr(
+  fleetStartedAt?: string,
+): Array<{ body: string; createdAt?: string }> {
   return [
     { body: markers.fleetStarted, createdAt: fleetStartedAt },
     { body: compoundSpawn },

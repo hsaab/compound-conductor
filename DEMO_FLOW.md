@@ -130,16 +130,18 @@ poll `GET $BRIDGE_URL/api/board` and read `jobs[].stages`.
 | plan | a fleet was planned + agents spawned (+ test plan posted) | `fleet-started`, `test-plan`, `agent spawned` | `/webhook/linear` → planner |
 | build | every build agent run is terminal | `agent-done id=…` | `/api/reconcile` reads cloud runs |
 | review | build done → the PR(s) merged | `merged` (or `deployed`) | Bugbot on GitHub + human merge |
-| deploy | Vercel `deployment.succeeded` arrived | `deployed` | `/webhook/vercel` |
+| deploy | Vercel `deployment.succeeded` arrived | `deployed` | `/webhook/vercel`, or reconcile promote of `deploy-buffered` |
 | verify | verify agent reports pass, or remediate ends the window | `verify-pass` (or `remediated`) | verify agent + `/api/reconcile`; Datadog alert during window |
 | remediate | hotfix merged + redeployed + re-verified | `remediated` (running) → `remediation-done` (loops review/deploy/verify back) → `hotfix-verify-pass` (done) | `/webhook/datadog` or verify fail + `/api/reconcile` + `/webhook/vercel` |
 
 **Critical operational note:** `build`, the PR URLs, `review`, and the `verify`
 window close only advance after a `/api/reconcile` pass. That pass reads finished
 cloud runs, checks PR merge status on GitHub (needs `GH_TOKEN`), and closes the
-verify window once the agent reports or the window elapses. Only `deploy` advances
-on its own via the Vercel webhook (which also spawns the verify agent). Run reconcile
-on a cadence during the demo (section 5.1).
+verify window once the agent reports or the window elapses. Deploy is no longer
+webhook-only once a buffer exists: late PRs and buffered deploys advance on the
+next reconcile tick. Same-tick promote still runs when this tick posted merged
+and a buffer is already on the issue. Run reconcile on a cadence during the demo
+(section 5.1).
 
 ---
 
