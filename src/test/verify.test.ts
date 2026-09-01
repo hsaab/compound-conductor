@@ -379,6 +379,40 @@ test("parseVerifyFindings reads one case per Case/Result table row when headings
   assert.match(parsed.verdictSummary ?? "", /Live site unreachable from this VM/);
 });
 
+test("parseVerifyFindings omits post-Verdict narrative on the Case/Result table path", () => {
+  // Table path (no Case N headings): heading parse skips after-Verdict prose via
+  // afterVerdictLabel, but tryParseCaseResultTable currently keeps that narrative.
+  const findings = [
+    "Site reachable on DNS; TLS still failing.",
+    "",
+    "| # | Case | Result | Evidence |",
+    "| --- | --- | --- | --- |",
+    "| 1 | API quotes check | FAIL (blocked) | TLS reset on quotes URL |",
+    "| 2 | Holdings live refresh | FAIL (blocked) | live poll never ran |",
+    "",
+    "Verdict",
+    "acceptance criteria not met on production",
+    "VERIFY_RESULT: FAIL - Live site unreachable",
+  ].join("\n");
+
+  const parsed = parseVerifyFindings(findings);
+
+  assert.equal(parsed.cases.length, 2);
+  assert.deepEqual(
+    parsed.cases.map((c) => ({ title: c.title, status: c.status })),
+    [
+      { title: "API quotes check", status: "fail" },
+      { title: "Holdings live refresh", status: "fail" },
+    ],
+  );
+  assert.ok(!parsed.preamble.some((line) => /acceptance criteria not met/i.test(line)));
+  for (const c of parsed.cases) {
+    assert.ok(!c.evidence.some((line) => /acceptance criteria not met/i.test(line)));
+  }
+  assert.equal(parsed.verdictStatus, "fail");
+  assert.match(parsed.verdictSummary ?? "", /Live site unreachable/);
+});
+
 test("parseVerifyFindings keeps heading-based cases and does not invent cases from an inner Case/Result table", () => {
   const parsed = parseVerifyFindings(
     [
