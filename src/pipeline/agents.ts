@@ -3,7 +3,7 @@
  * recovering a previously-spawned agent's latest run for the reconciler.
  */
 
-import { cursorKey, deployTargetRepo, fleetModel, ghOwner, markers, modelId } from "../config.js";
+import { cursorKey, deployTargetRepo, fleetModel, ghOwner, markers } from "../config.js";
 import { PIPELINE_CYCLES, type PipelineCycle } from "./cycle.js";
 import { postComment } from "../integrations/linear.js";
 import { oneLineError } from "../shared/errors.js";
@@ -29,7 +29,7 @@ function buildPrompt(issue: LinearIssuePayload, task: PlannedTask): string {
 export async function spawnAgent(task: PlannedTask, issue: LinearIssuePayload): Promise<void> {
   const name = repoShortName(task.repo);
   console.log(
-    `[${name}] Starting a Cursor cloud agent on github.com/${task.repo} (model: ${modelId}) for ${issue.identifier}`,
+    `[${name}] Starting a Cursor cloud agent on github.com/${task.repo} (model: ${fleetModel.id}) for ${issue.identifier}`,
   );
   try {
     // Import inside the try: @cursor/sdk loads native sqlite3 at import time, so
