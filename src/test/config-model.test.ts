@@ -1,14 +1,20 @@
 /**
  * Cloud model selection for fleet / verify / remediation / planner spawn.
  *
- * Override journeys call selectCloudModel directly: config.ts captures
- * BRIDGE_MODEL_ID / PLANNER_MODEL_ID at load, so flipping process.env
- * in-process would not change the exported defaults.
+ * config.ts captures BRIDGE_MODEL_ID / PLANNER_MODEL_ID at module load, so a
+ * developer shell that sourced .env (per the AGENTS.md runbook) would poison
+ * the default-model tests. node --test runs each file in its own child
+ * process, so we can safely delete those env vars here and dynamically import
+ * config afterwards, guaranteeing the defaults are what get captured.
+ * Override journeys call selectCloudModel directly.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import * as config from "../config.js";
+delete process.env.BRIDGE_MODEL_ID;
+delete process.env.PLANNER_MODEL_ID;
+
+const config = await import("../config.js");
 
 const extraHigh = {
   id: "grok-4.6",
@@ -29,19 +35,9 @@ test("with no model env set, fleet verify remediation and planner selections are
 });
 
 test("overriding the model id to composer-2.5 uses that id without extra-high effort", () => {
-  assert.equal(
-    typeof config.selectCloudModel,
-    "function",
-    "selectCloudModel must be exported from config.ts",
-  );
   assert.deepEqual(config.selectCloudModel("composer-2.5"), { id: "composer-2.5" });
 });
 
 test("explicit grok-4.6 still gets extra high", () => {
-  assert.equal(
-    typeof config.selectCloudModel,
-    "function",
-    "selectCloudModel must be exported from config.ts",
-  );
   assert.deepEqual(config.selectCloudModel("grok-4.6"), extraHigh);
 });
