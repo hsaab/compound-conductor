@@ -339,9 +339,12 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }
 
   async function refresh() {
+    const gen = pollGen;
     try {
       const res = await fetch("/api/board?all=1", { cache: "no-store" });
       const data = await res.json();
+      // Late /api/board responses from a stopped generation must not paint.
+      if (gen !== pollGen) return;
       const jobs = data.jobs || [];
       const board = document.getElementById("board");
       board.innerHTML = jobs.length ? jobs.map(renderJob).join("") : '<div class="empty">No fleets launched yet. Drag a cursor-fleet ticket into In Progress.</div>';
@@ -349,44 +352,131 @@ export const dashboardHtml = /* html */ `<!doctype html>
       document.querySelectorAll(".logs").forEach((el) => { el.scrollTop = el.scrollHeight; });
       document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
     } catch (err) {
-      document.getElementById("updated").textContent = "reconnecting…";
+      if (gen === pollGen) document.getElementById("updated").textContent = "reconnecting…";
     }
   }
 
   // Polling control. The board poll is conductor's only Linear-backed loop: every
   // /api/board read hits Linear (through the short TTL cache), so this 2s loop is
   // the "polling of Linear" a presenter may want to freeze mid-demo. boardTimer is
-  // the single source of truth. null means paused, so nothing is scheduled and no
-  // Linear read can fire until the loop is resumed.
+  // the scheduler. pollGen drops in-flight paints after a pause. manuallyPaused
+  // keeps the Pause button from fighting auto-pause.
+  //
+  // Real browser tabs pause on document.hidden (visibility, not focus), so a
+  // screen-shared but unfocused Chrome window keeps polling. Cursor / VS Code's
+  // embedded browser never flips hidden when you switch its tabs, so that
+  // surface falls back to blur/focus: leaving the tab blurs the webview and
+  // pauses; clicking back fires focus and resumes with an immediate poll. The
+  // blur pause is deferred 50ms so a blur-then-focus pair cannot cancel that
+  // poll. A focus-then-blur from Simple Browser tab chrome is ignored for the
+  // same 50ms so that gesture cannot increment pollGen on the fetch just
+  // started. A page that never had focus never pauses.
   const pauseBtn = document.getElementById("pause");
   const pulse = document.querySelector(".live .pulse");
   let boardTimer = null;
+  let pollGen = 0;
+  let manuallyPaused = false;
+  let idlePauseTimer = null;
+  let lastFocusAt = 0;
 
-  function startPolling() {
-    if (boardTimer !== null) return;
-    refresh(); // poll once now so resuming feels instant instead of waiting 2s
-    boardTimer = setInterval(refresh, 2000);
-    pulse.classList.remove("paused");
-    pauseBtn.textContent = "Pause";
-    pauseBtn.setAttribute("aria-pressed", "false");
-    pauseBtn.setAttribute("aria-label", "Pause polling");
+  function inIdeBrowser() {
+    try {
+      if (window !== window.top) return true;
+    } catch (err) {
+      return true;
+    }
+    if (typeof acquireVsCodeApi === "function") return true;
+    return /Electron|VSCode|Cursor/i.test(navigator.userAgent || "");
   }
 
-  function stopPolling() {
-    if (boardTimer === null) return;
-    clearInterval(boardTimer);
-    boardTimer = null;
+  function cancelIdlePause() {
+    if (idlePauseTimer !== null) {
+      clearTimeout(idlePauseTimer);
+      idlePauseTimer = null;
+    }
+  }
+
+  function applyPauseButton() {
+    if (manuallyPaused) {
+      pauseBtn.textContent = "Resume";
+      pauseBtn.setAttribute("aria-pressed", "true");
+      pauseBtn.setAttribute("aria-label", "Resume polling");
+    } else {
+      pauseBtn.textContent = "Pause";
+      pauseBtn.setAttribute("aria-pressed", "false");
+      pauseBtn.setAttribute("aria-label", "Pause polling");
+    }
+  }
+
+  function startPolling() {
+    if (manuallyPaused || document.hidden) return;
+    if (boardTimer !== null) return;
+    cancelIdlePause();
+    // Flip the header before the fetch so resume is not stuck on the pause label.
+    pulse.classList.remove("paused");
+    document.getElementById("updated").textContent = "updating…";
+    applyPauseButton();
+    refresh();
+    boardTimer = setInterval(refresh, 2000);
+  }
+
+  function stopPolling(label) {
+    pollGen += 1;
+    cancelIdlePause();
+    if (boardTimer !== null) {
+      clearInterval(boardTimer);
+      boardTimer = null;
+    }
     pulse.classList.add("paused");
-    document.getElementById("updated").textContent = "paused";
-    pauseBtn.textContent = "Resume";
-    pauseBtn.setAttribute("aria-pressed", "true");
-    pauseBtn.setAttribute("aria-label", "Resume polling");
+    document.getElementById("updated").textContent = label;
+    applyPauseButton();
+  }
+
+  function onVisibility() {
+    if (document.hidden) {
+      if (boardTimer !== null) stopPolling("paused (tab hidden)");
+    } else if (!manuallyPaused) {
+      startPolling();
+    }
+  }
+
+  function onWindowBlur() {
+    if (manuallyPaused || document.hidden || !inIdeBrowser()) return;
+    cancelIdlePause();
+    // Tab-return chrome fires focus then blur. Arming a pause here would
+    // increment pollGen and drop the /api/board startPolling just kicked.
+    if (Date.now() - lastFocusAt < 50) return;
+    idlePauseTimer = setTimeout(() => {
+      idlePauseTimer = null;
+      if (manuallyPaused || document.hidden || document.hasFocus()) return;
+      if (boardTimer !== null) stopPolling("paused (editor idle)");
+    }, 50);
+  }
+
+  function onWindowFocus() {
+    cancelIdlePause();
+    lastFocusAt = Date.now();
+    if (!manuallyPaused && !document.hidden) startPolling();
   }
 
   pauseBtn.addEventListener("click", () => {
-    if (boardTimer === null) startPolling();
-    else stopPolling();
+    if (manuallyPaused) {
+      manuallyPaused = false;
+      if (!document.hidden) startPolling();
+      else applyPauseButton();
+    } else {
+      manuallyPaused = true;
+      stopPolling("paused");
+    }
   });
+
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("blur", onWindowBlur);
+  window.addEventListener("focus", onWindowFocus);
+  document.addEventListener("freeze", () => {
+    if (boardTimer !== null) stopPolling("paused (tab hidden)");
+  });
+  document.addEventListener("resume", onVisibility);
 
   // Tick the in-progress timers locally between polls for a live feel. Frozen
   // while paused so the whole board reads as stopped, not half-live.
@@ -402,7 +492,11 @@ export const dashboardHtml = /* html */ `<!doctype html>
   }, 1000);
 
   document.getElementById("legend").innerHTML = renderLegend();
-  startPolling();
+  if (document.hidden) {
+    stopPolling("paused (tab hidden)");
+  } else {
+    startPolling();
+  }
 </script>
 </body>
 </html>`;
